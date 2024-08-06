@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Contains the most low-level helpers methods in Kohana:
  *
@@ -10,50 +12,59 @@
  *
  * @package    Kohana
  * @category   HTTP
- * @author     Kohana Team
- * @since      3.1.0
- * @copyright  (c) 2008-2014 Kohana Team
+ * @updated    PHP 8.3
  * @license    https://kohana.top/license
  */
 abstract class Kohana_HTTP
 {
     /**
-     * @var  The default protocol to use if it cannot be detected
+     * @var string The default protocol to use if it cannot be detected
      */
-    public static $protocol = 'HTTP/1.1';
+    public static string $protocol = 'HTTP/2';
+
+    /**
+     * List of supported protocols
+     *
+     * @var array
+     */
+    private static array $supportedProtocols = ['HTTP/1.0', 'HTTP/1.1', 'HTTP/2', 'HTTP/3'];
 
     /**
      * Issues a HTTP redirect.
      *
-     * @param  string    $uri       URI to redirect to
-     * @param  int       $code      HTTP Status code to use for the redirect
+     * @param string $uri URI to redirect to
+     * @param int $code HTTP Status code to use for the redirect
      * @throws HTTP_Exception
      */
-    public static function redirect($uri = '', $code = 302)
+    public static function redirect(string $uri = '', int $code = 302): void
     {
+        $protocol = self::get_protocol();
+        $locationHeader = $protocol === 'HTTP/2' || $protocol === 'HTTP/3' ? ':status' : 'Location';
+
         $e = HTTP_Exception::factory($code);
 
-        if (!$e instanceof HTTP_Exception_Redirect)
+        if (!$e instanceof HTTP_Exception_Redirect) {
             throw new Kohana_Exception('Invalid redirect code \':code\'', [':code' => $code]);
+        }
 
-        throw $e->location($uri);
+        throw $e->location($uri)->headers($locationHeader, $uri);
     }
 
     /**
-     * Checks the browser cache to see the response needs to be returned,
+     * Checks the browser cache to see if the response needs to be returned,
      * execution will halt and a 304 Not Modified will be sent if the
      * browser cache is up to date.
      *
-     * @param  Request   $request   Request
-     * @param  Response  $response  Response
-     * @param  string    $etag      Resource ETag
+     * @param Request $request Request
+     * @param Response $response Response
+     * @param string|null $etag Resource ETag
      * @throws HTTP_Exception_304
      * @return Response
      */
-    public static function check_cache(Request $request, Response $response, $etag = null)
+    public static function check_cache(Request $request, Response $response, ?string $etag = null): Response
     {
         // Generate an etag if necessary
-        if ($etag == null) {
+        if ($etag === null) {
             $etag = $response->generate_etag();
         }
 
@@ -69,7 +80,7 @@ abstract class Kohana_HTTP
         }
 
         // Check if we have a matching etag
-        if ($request->headers('if-none-match') AND (string) $request->headers('if-none-match') === $etag) {
+        if ($request->headers('if-none-match') && (string) $request->headers('if-none-match') === $etag) {
             // No need to send data again
             throw HTTP_Exception::factory(304)->headers('etag', $etag);
         }
@@ -80,10 +91,10 @@ abstract class Kohana_HTTP
     /**
      * Parses a HTTP header string into an associative array
      *
-     * @param   string   $header_string  Header string to parse
-     * @return  HTTP_Header
+     * @param string $header_string Header string to parse
+     * @return HTTP_Header
      */
-    public static function parse_header_string($header_string)
+    public static function parse_header_string(string $header_string): HTTP_Header
     {
         // If the PECL HTTP extension is loaded
         if (extension_loaded('http')) {
@@ -105,16 +116,13 @@ abstract class Kohana_HTTP
                 if (!isset($headers[$matches[1][$key]])) {
                     // Apply the header directly
                     $headers[$matches[1][$key]] = $matches[2][$key];
-                }
-                // Otherwise there is an existing entry
-                else {
-                    // If the entry is an array
+                } else {
+                    // Otherwise there is an existing entry
                     if (is_array($headers[$matches[1][$key]])) {
                         // Apply the new entry to the array
                         $headers[$matches[1][$key]][] = $matches[2][$key];
-                    }
-                    // Otherwise create a new array with the entries
-                    else {
+                    } else {
+                        // Otherwise create a new array with the entries
                         $headers[$matches[1][$key]] = [
                             $headers[$matches[1][$key]],
                             $matches[2][$key],
@@ -129,24 +137,19 @@ abstract class Kohana_HTTP
     }
 
     /**
-     * Parses the the HTTP request headers and returns an array containing
-     * key value pairs. This method is slow, but provides an accurate
+     * Parses the HTTP request headers and returns an array containing
+     * key-value pairs. This method is slow, but provides an accurate
      * representation of the HTTP request.
      *
-     *      // Get http headers into the request
-     *      $request->headers = HTTP::request_headers();
-     *
-     * @return  HTTP_Header
+     * @return HTTP_Header
      */
-    public static function request_headers()
+    public static function request_headers(): HTTP_Header
     {
         // If running on apache server
         if (function_exists('apache_request_headers')) {
             // Return the much faster method
             return new HTTP_Header(apache_request_headers());
-        }
-        // If the PECL HTTP tools are installed
-        elseif (extension_loaded('http')) {
+        } elseif (extension_loaded('http')) {
             // Return the much faster method
             $headers = version_compare(phpversion('http'), '2.0.0', '>=') ?
                 \http\Env::getRequestHeader() :
@@ -184,13 +187,14 @@ abstract class Kohana_HTTP
      * Processes an array of key value pairs and encodes
      * the values to meet RFC 3986
      *
-     * @param   array   $params  Params
-     * @return  string
+     * @param array $params Params
+     * @return string
      */
-    public static function www_form_urlencode(array $params = [])
+    public static function www_form_urlencode(array $params = []): string
     {
-        if (!$params)
-            return;
+        if (empty($params)) {
+            return '';
+        }
 
         $encoded = [];
 
@@ -201,4 +205,17 @@ abstract class Kohana_HTTP
         return implode('&', $encoded);
     }
 
+    /**
+     * Determine the HTTP protocol being used.
+     *
+     * @return string
+     */
+    public static function get_protocol(): string
+    {
+        $protocol = $_SERVER['SERVER_PROTOCOL'] ?? self::$protocol;
+        if (in_array($protocol, self::$supportedProtocols, true)) {
+            return $protocol;
+        }
+        return self::$protocol;
+    }
 }
