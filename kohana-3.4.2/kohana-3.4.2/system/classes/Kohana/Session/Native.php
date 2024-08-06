@@ -1,123 +1,193 @@
 <?php
 
+declare(strict_types=1);
+
 /**
- * Native PHP session class.
+ * Native session class.
  *
  * @package    Kohana
- * @category   Session
- * @author     Kohana Team
- * @copyright  (c) 2008-2012 Kohana Team
- * @license    https://kohana.top/license
+ * @category   Cookie
+ * @modified   2024-07-24 - PHP 8.3 strict typing and Cookie
  */
 class Kohana_Session_Native extends Session
 {
-    /**
-     * @return  string
-     */
-    public function id()
+    public function id(): string
     {
         return session_id();
     }
 
-    /**
-     * @param   string  $id  session id
-     * @return  null
-     */
-    protected function _read($id = null)
+    protected function _read(?string $id = null): ?string
     {
-        /**
-         * session_set_cookie_params will override php ini settings
-         * If Cookie::$domain is null or empty and is passed, PHP
-         * will override ini and sent cookies with the host name
-         * of the server which generated the cookie
-         *
-         * see issue #3604
-         *
-         * see http://www.php.net/manual/en/function.session-set-cookie-params.php
-         * see http://www.php.net/manual/en/session.configuration.php#ini.session.cookie-domain
-         *
-         * set to Cookie::$domain if available, otherwise default to ini setting
-         */
-        $session_cookie_domain = empty(Cookie::$domain) ? ini_get('session.cookie_domain') : Cookie::$domain;
+        // Настройки параметров куки для сессии
+        session_set_cookie_params([
+            'lifetime' => $this->_lifetime,
+            'path' => Cookie::$path,
+            'domain' => Cookie::$domain,
+            'secure' => Cookie::$secure,
+            'httponly' => true,
+            'samesite' => 'Lax'
+        ]);
 
-        // Sync up the session cookie with Cookie parameters
-        session_set_cookie_params(
-            $this->_lifetime, Cookie::$path, $session_cookie_domain, Cookie::$secure, Cookie::$httponly
-        );
-
-        // Do not allow PHP to send Cache-Control headers
-        session_cache_limiter(false);
-
-        // Set the session cookie name
         session_name($this->_name);
 
-        if ($id) {
-            // Set the session id
+        if ($id !== null) {
             session_id($id);
         }
 
-        // Start the session
-        session_start();
+        // Запуск сессии с дополнительными параметрами безопасности
+        session_start([
+            'use_strict_mode' => true,
+            'sid_length' => 48,
+            'sid_bits_per_character' => 6,
+            'cache_limiter' => ''
+        ]);
 
-        // Use the $_SESSION global for storing data
-        $this->_data = & $_SESSION;
+        $this->_data = &$_SESSION;
+
+        // Проверка подлинности сессии и регенерация, если необходимо
+        if (!$this->_validate_session()) {
+            $this->regenerate();
+            $_SESSION = [];
+        } elseif ($this->_should_regenerate()) {
+            $this->regenerate();
+        }
 
         return null;
     }
 
-    /**
-     * @return  string
-     */
-    protected function _regenerate()
-    {
-        // Regenerate the session id
-        session_regenerate_id();
-
-        return session_id();
+ protected function _write(): bool
+{
+    if ($this->_destroyed) {
+        return false;
     }
 
-    /**
-     * @return  bool
-     */
-    protected function _write()
-    {
-        // Write and close the session
-        session_write_close();
+    $_SESSION['_last_active'] = (new DateTime())->getTimestamp();
+    return session_write_close();
+}
 
+protected function _regenerate(): string
+{
+    session_regenerate_id(true);
+    return session_id();
+}
+
+public function regenerate(): string
+{
+    $_SESSION['_last_regenerate'] = (new DateTime())->getTimestamp();
+    session_regenerate_id(true);
+    return session_id();
+}
+
+protected function _restart(): bool
+{
+    $status = session_start([
+        'use_strict_mode' => true,
+        'sid_length' => 48,
+        'sid_bits_per_character' => 6,
+        'cache_limiter' => ''
+    ]);
+    $this->_data = &$_SESSION;
+    return $status;
+}
+
+protected function _destroy(): bool
+{
+    // Удаляем все данные из сессии
+    $_SESSION = [];
+
+    // Получаем параметры куки для текущей сессии
+    $params = session_get_cookie_params();
+
+    // Удаляем сессионные куки, устанавливая срок их действия в прошлое
+    setcookie($this->_name, '', (new DateTime())->getTimestamp() - 42000,
+        $params['path'], $params['domain'],
+        $params['secure'], $params['httponly']
+    );
+
+    // Разрушаем сессию
+    session_destroy();
+
+    // Проверяем, что сессия действительно уничтожена
+    $status = session_id() === '';
+
+    if ($status) {
+        // Удаляем соответствующий куки
+        Cookie::delete($this->_name);
+    }
+
+    return $status;
+}
+
+private function _should_regenerate(): bool
+{
+    return !isset($_SESSION['_last_regenerate']) ||
+           ((new DateTime())->getTimestamp() - $_SESSION['_last_regenerate']) > 900; // 15 минут
+}
+
+private function _validate_session(): bool
+{
+    // Если сессия только что создана, инициализируем отпечаток и время создания
+    if (!isset($_SESSION['_created'])) {
+        $_SESSION['_created'] = (new DateTime())->getTimestamp();
+        $_SESSION['_fingerprint'] = $this->_generate_fingerprint();
         return true;
     }
 
-    /**
-     * @return  bool
-     */
-    protected function _restart()
+    // Проверяем отпечаток сессии
+    if ($_SESSION['_fingerprint'] !== $this->_generate_fingerprint()) {
+        return false;
+    }
+
+    // Обновляем отпечаток сессии
+    $_SESSION['_fingerprint'] = $this->_generate_fingerprint();
+    return true;
+}
+
+
+    private function _generate_fingerprint(): string
     {
-        // Fire up a new session
-        $status = session_start();
-
-        // Use the $_SESSION global for storing data
-        $this->_data = & $_SESSION;
-
-        return $status;
+        return hash('sha256', 
+            $_SERVER['HTTP_USER_AGENT'] . 
+            (ip2long($_SERVER['REMOTE_ADDR']) & ip2long('255.255.0.0'))
+        );
     }
 
     /**
-     * @return  bool
+     * Encrypts the data using the given key.
+     *
+     * @param string $data data to encrypt
+     * @param string $key encryption key
+     * @return string
      */
-    protected function _destroy()
+    protected function _encrypt(string $data, string $key): string
     {
-        // Destroy the current session
-        session_destroy();
-
-        // Did destruction work?
-        $status = !session_id();
-
-        if ($status) {
-            // Make sure the session cannot be restarted
-            Cookie::delete($this->_name);
-        }
-
-        return $status;
+        $iv = random_bytes(openssl_cipher_iv_length('aes-256-cbc'));
+        $encrypted = openssl_encrypt($data, 'aes-256-cbc', $key, 0, $iv);
+        return base64_encode($iv . $encrypted);
     }
 
+    /**
+     * Decrypts the data using the given key.
+     *
+     * @param string $data data to decrypt
+     * @param string $key decryption key
+     * @return string
+     */
+    protected function _decrypt(string $data, string $key): string
+    {
+        $data = base64_decode($data);
+        $iv = substr($data, 0, openssl_cipher_iv_length('aes-256-cbc'));
+        $encrypted = substr($data, openssl_cipher_iv_length('aes-256-cbc'));
+        return openssl_decrypt($encrypted, 'aes-256-cbc', $key, 0, $iv);
+    }
+
+    /**
+     * Generates a new encryption key.
+     *
+     * @return string
+     */
+    protected function _generate_encryption_key(): string
+    {
+        return bin2hex(random_bytes(32));
+    }
 }
