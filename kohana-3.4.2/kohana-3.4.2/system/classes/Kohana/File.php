@@ -1,31 +1,30 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * File helper class.
  *
  * @package    Kohana
  * @category   Helpers
  * @author     Kohana Team
- * @copyright  (c) 2007-2012 Kohana Team
- * @license    https://kohana.top/license
+ * @php 8.3
  */
 class Kohana_File
 {
     /**
-     * Attempt to get the mime type from a file. This method is horribly
-     * unreliable, due to PHP being horribly unreliable when it comes to
-     * determining the mime type of a file.
+     * Attempt to get the mime type from a file.
      *
-     *     $mime = File::mime($file);
-     *
-     * @param   string  $filename   file name or path
-     * @return  string  mime type on success
-     * @return  false   On failure
+     * @param   string  $filename   File name or path
+     * @return  string|null Mime type on success, null on failure
      */
-    public static function mime($filename)
+    public static function mime(string $filename): ?string
     {
         // Get the complete path to the file
         $filename = realpath($filename);
+        if ($filename === false) {
+            return null; // File does not exist
+        }
 
         // Get the extension from the filename
         $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
@@ -33,69 +32,61 @@ class Kohana_File
         if (preg_match('/^(?:jpe?g|png|[gt]if|bmp|swf)$/', $extension)) {
             // Use getimagesize() to find the mime type on images
             $file = getimagesize($filename);
-
-            if (isset($file['mime']))
+            if (isset($file['mime'])) {
                 return $file['mime'];
-        }
-
-        if (class_exists('finfo', false)) {
-            if ($info = new finfo(defined('FILEINFO_MIME_TYPE') ? FILEINFO_MIME_TYPE : FILEINFO_MIME)) {
-                return $info->file($filename);
             }
         }
 
-        if (ini_get('mime_magic.magicfile') AND function_exists('mime_content_type')) {
-            // The mime_content_type function is only useful with a magic file
+        if (class_exists('finfo')) {
+            $finfo = new finfo(FILEINFO_MIME_TYPE);
+            $mime = $finfo->file($filename);
+            if ($mime !== false) {
+                return $mime;
+            }
+        }
+
+        // Fallback to mime_content_type if available
+        if (function_exists('mime_content_type')) {
             return mime_content_type($filename);
         }
 
-        if (!empty($extension)) {
-            return File::mime_by_ext($extension);
-        }
-
-        // Unable to find the mime-type
-        return false;
+        // Fallback to extension-based mime type
+        return self::mime_by_ext($extension);
     }
 
     /**
      * Return the mime type of an extension.
      *
-     *     $mime = File::mime_by_ext('png'); // "image/png"
-     *
-     * @param   string  $extension  php, pdf, txt, etc
-     * @return  string  mime type on success
-     * @return  false   On failure
+     * @param   string  $extension  File extension (php, pdf, txt, etc.)
+     * @return  string|null Mime type on success, null on failure
      */
-    public static function mime_by_ext($extension)
+    public static function mime_by_ext(string $extension): ?string
     {
         // Load all of the mime types
         $mimes = Kohana::$config->load('mimes');
-
-        return isset($mimes[$extension]) ? $mimes[$extension][0] : false;
+        return $mimes[$extension][0] ?? null;
     }
 
     /**
-     * Lookup MIME types for a file
+     * Lookup MIME types for a file extension.
      *
-     * @see Kohana_File::mime_by_ext()
      * @param string $extension Extension to lookup
-     * @return array Array of MIMEs associated with the specified extension
+     * @return array Array of MIME types associated with the specified extension
      */
-    public static function mimes_by_ext($extension)
+    public static function mimes_by_ext(string $extension): array
     {
         // Load all of the mime types
         $mimes = Kohana::$config->load('mimes');
-
-        return isset($mimes[$extension]) ? ((array) $mimes[$extension]) : [];
+        return $mimes[$extension] ?? [];
     }
 
     /**
-     * Lookup file extensions by MIME type
+     * Lookup file extensions by MIME type.
      *
      * @param   string  $type File MIME type
      * @return  array   File extensions matching MIME type
      */
-    public static function exts_by_mime($type)
+    public static function exts_by_mime(string $type): array
     {
         static $types = [];
 
@@ -117,34 +108,36 @@ class Kohana_File
             }
         }
 
-        return isset($types[$type]) ? $types[$type] : false;
+        return $types[$type] ?? [];
     }
 
     /**
      * Lookup a single file extension by MIME type.
      *
      * @param   string  $type  MIME type to lookup
-     * @return  mixed          First file extension matching or false
+     * @return  string|null    First file extension matching or null
      */
-    public static function ext_by_mime($type)
+    public static function ext_by_mime(string $type): ?string
     {
-        return current(File::exts_by_mime($type));
+        $exts = self::exts_by_mime($type);
+        return $exts[0] ?? null;
     }
 
     /**
-     * Split a file into pieces matching a specific size. Used when you need to
-     * split large files into smaller pieces for easy transmission.
+     * Split a file into pieces matching a specific size.
      *
-     *     $count = File::split($file);
-     *
-     * @param   string  $filename   file to be split
-     * @param   integer $piece_size size, in MB, for each piece to be
-     * @return  integer The number of pieces that were created
+     * @param   string  $filename   File to be split
+     * @param   int     $piece_size Size, in MB, for each piece to be
+     * @return  int     The number of pieces that were created
+     * @throws  Exception If file cannot be opened
      */
-    public static function split($filename, $piece_size = 10)
+    public static function split(string $filename, int $piece_size = 10): int
     {
         // Open the input file
         $file = fopen($filename, 'rb');
+        if ($file === false) {
+            throw new Exception("Unable to open file: $filename");
+        }
 
         // Change the piece size to bytes
         $piece_size = floor($piece_size * 1024 * 1024);
@@ -160,8 +153,12 @@ class Kohana_File
             $pieces += 1;
 
             // Create a new file piece
-            $piece = str_pad($pieces, 3, '0', STR_PAD_LEFT);
-            $piece = fopen($filename . '.' . $piece, 'wb+');
+            $piece_filename = $filename . '.' . str_pad((string)$pieces, 3, '0', STR_PAD_LEFT);
+            $piece = fopen($piece_filename, 'wb+');
+            if ($piece === false) {
+                fclose($file);
+                throw new Exception("Unable to open file for writing: $piece_filename");
+            }
 
             // Number of bytes read
             $read = 0;
@@ -185,17 +182,19 @@ class Kohana_File
     }
 
     /**
-     * Join a split file into a whole file. Does the reverse of [File::split].
+     * Join a split file into a whole file.
      *
-     *     $count = File::join($file);
-     *
-     * @param   string  $filename   split filename, without .000 extension
-     * @return  integer The number of pieces that were joined.
+     * @param   string  $filename   Split filename, without .000 extension
+     * @return  int     The number of pieces that were joined
+     * @throws  Exception If file cannot be opened
      */
-    public static function join($filename)
+    public static function join(string $filename): int
     {
         // Open the file
         $file = fopen($filename, 'wb+');
+        if ($file === false) {
+            throw new Exception("Unable to open file: $filename");
+        }
 
         // Read files in 8k blocks
         $block_size = 1024 * 8;
@@ -203,12 +202,16 @@ class Kohana_File
         // Total number of pieces
         $pieces = 0;
 
-        while (is_file($piece = $filename . '.' . str_pad($pieces + 1, 3, '0', STR_PAD_LEFT))) {
+        while (is_file($piece_filename = $filename . '.' . str_pad((string)($pieces + 1), 3, '0', STR_PAD_LEFT))) {
             // Read another piece
             $pieces += 1;
 
             // Open the piece for reading
-            $piece = fopen($piece, 'rb');
+            $piece = fopen($piece_filename, 'rb');
+            if ($piece === false) {
+                fclose($file);
+                throw new Exception("Unable to open piece: $piece_filename");
+            }
 
             while (!feof($piece)) {
                 // Transfer the data in blocks
@@ -219,7 +222,9 @@ class Kohana_File
             fclose($piece);
         }
 
+        // Close the main file
+        fclose($file);
+
         return $pieces;
     }
-
 }
