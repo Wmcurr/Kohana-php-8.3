@@ -1,5 +1,5 @@
 <?php
-
+declare(strict_types=1); // Enabling strict typing mode
 /**
  * A HTTP Request specific interface that adds the methods required
  * by HTTP requests. Over and above [Kohana_HTTP_Interaction], this
@@ -8,8 +8,8 @@
  * @package    Kohana
  * @category   HTTP
  * @author     Kohana Team
- * @since      3.1.0
- * @copyright  (c) 2008-2014 Kohana Team
+ * @since      3.5.0
+ * @copyright  (c) 2024 Kohana Team
  * @license    https://kohana.top/license
  */
 interface Kohana_HTTP_Request extends HTTP_Message
