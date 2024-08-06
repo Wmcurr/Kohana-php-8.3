@@ -45,10 +45,10 @@ class Kohana_Profiler
             'group' => strtolower($group),
             'name' => (string) $name,
             // Start the benchmark
-            'start_time' => microtime(true),
+            'start_time' => new DateTime(),
             'start_memory' => memory_get_usage(),
             // Set the stop keys without values
-            'stop_time' => false,
+            'stop_time' => null,
             'stop_memory' => false,
         ];
 
@@ -66,7 +66,7 @@ class Kohana_Profiler
     public static function stop($token)
     {
         // Stop the benchmark
-        Profiler::$_marks[$token]['stop_time'] = microtime(true);
+        Profiler::$_marks[$token]['stop_time'] = new DateTime();
         Profiler::$_marks[$token]['stop_memory'] = memory_get_usage();
     }
 
@@ -267,15 +267,18 @@ class Kohana_Profiler
         // Import the benchmark data
         $mark = Profiler::$_marks[$token];
 
-        if ($mark['stop_time'] === false) {
+        if ($mark['stop_time'] === null) {
             // The benchmark has not been stopped yet
-            $mark['stop_time'] = microtime(true);
+            $mark['stop_time'] = new DateTime();
             $mark['stop_memory'] = memory_get_usage();
         }
 
+        $start = $mark['start_time'];
+        $stop = $mark['stop_time'];
+
         return [
             // Total time in seconds
-            $mark['stop_time'] - $mark['start_time'],
+            $stop->getTimestamp() - $start->getTimestamp(),
             // Amount of memory in bytes
             $mark['stop_memory'] - $mark['start_memory'],
         ];
@@ -315,23 +318,25 @@ class Kohana_Profiler
         }
 
         // Get the application run time
-        $time = microtime(true) - KOHANA_START_TIME;
+        $time = new DateTime();
+        $appStart = new DateTime('@' . KOHANA_START_TIME);
+        $interval = $appStart->diff($time);
 
         // Get the total memory usage
         $memory = memory_get_usage() - KOHANA_START_MEMORY;
 
         // Calculate max time
-        if ($stats['max']['time'] === null OR $time > $stats['max']['time']) {
-            $stats['max']['time'] = $time;
+        if ($stats['max']['time'] === null OR $interval->s > $stats['max']['time']) {
+            $stats['max']['time'] = $interval->s;
         }
 
         // Calculate min time
-        if ($stats['min']['time'] === null OR $time < $stats['min']['time']) {
-            $stats['min']['time'] = $time;
+        if ($stats['min']['time'] === null OR $interval->s < $stats['min']['time']) {
+            $stats['min']['time'] = $interval->s;
         }
 
         // Add to total time
-        $stats['total']['time'] += $time;
+        $stats['total']['time'] += $interval->s;
 
         // Calculate max memory
         if ($stats['max']['memory'] === null OR $memory > $stats['max']['memory']) {
@@ -360,7 +365,7 @@ class Kohana_Profiler
 
         // Set the current application execution time and memory
         // Do NOT cache these, they are specific to the current request only
-        $stats['current']['time'] = $time;
+        $stats['current']['time'] = $interval->s;
         $stats['current']['memory'] = $memory;
 
         // Return the total application run time and memory usage
