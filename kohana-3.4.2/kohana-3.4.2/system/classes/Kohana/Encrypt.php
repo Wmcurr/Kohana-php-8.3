@@ -1,86 +1,75 @@
 <?php
 
+namespace Kohana\Security;
+
+use Kohana_Exception;
+
 /**
- * Kohana Encrypt provides a common interface to a variety of cryptography
- * engines, supports multiple instances of cryptography engines through a
- * grouped singleton pattern.
+ * Provides a common interface to a variety of cryptography engines.
+ * Supports multiple instances of cryptography engines through a singleton pattern.
  *
  * @package    Kohana
  * @category   Security
- * @author     Tinsh <kilofox2000@gmail.com>
- * @copyright  (c) 2018 Kohana Group
- * @license    https://kohana.top/license
  */
 abstract class Kohana_Encrypt
 {
     /**
-     * @var  string  Default instance name.
+     * @var string Default instance name.
      */
-    public static $default = 'default';
+    public static string $default = 'default';
 
     /**
-     * @var  array  Encrypt class instances.
+     * @var array<string, self> Encrypt class instances.
      */
-    public static $instances = [];
+    private static array $instances = [];
 
     /**
      * Creates a singleton instance of Encrypt. An encryption key must be
      * provided in your "encrypt" configuration file.
      *
-     *     $encrypt = Encrypt::instance();
-     *
-     * @param   string  $name   Configuration group name.
-     * @param   array   $config Configuration parameters.
-     * @return  Encrypt
+     * @param string|null $name   Configuration group name.
+     * @param array|null $config  Configuration parameters.
+     * @return self
+     * @throws Kohana_Exception
      */
-    public static function instance($name = null, array $config = null)
+    public static function instance(?string $name = null, ?array $config = null): self
     {
-        if ($name === null) {
-            // Use the default instance name
-            $name = Encrypt::$default;
-        }
+        $name ??= self::$default;
 
-        if (!isset(Encrypt::$instances[$name])) {
-            if ($config === null) {
-                // Load the configuration data
-                $config = Kohana::$config->load('encrypt')->$name;
-            }
+        if (!isset(self::$instances[$name])) {
+            $config = $config ?? Kohana::$config->load('encrypt')->$name ?? null;
 
-            if (!isset($config['driver'])) {
+            if ($config === null || !isset($config['driver'])) {
                 throw new Kohana_Exception('No encryption driver is defined in the encryption configuration group: :group', [':group' => $name]);
             }
 
             // Set the driver class name
-            $driver = 'Encrypt_' . ucfirst($config['driver']);
+            $driverClass = 'Encrypt_' . ucfirst($config['driver']);
+
+            if (!class_exists($driverClass)) {
+                throw new Kohana_Exception("Encryption driver class :class not found.", [':class' => $driverClass]);
+            }
 
             // Create a new instance
-            Encrypt::$instances[$name] = new $driver($name, $config);
+            self::$instances[$name] = new $driverClass($config);
         }
 
-        return Encrypt::$instances[$name];
+        return self::$instances[$name];
     }
 
     /**
      * Encrypts a string and returns an encrypted string that can be decoded.
      *
-     *     $data = $encrypt->encode($data);
-     *
-     * The encrypted binary data is encoded using [base64](http://php.net/base64_encode)
-     * to convert it to a string. This string can be stored in a database,
-     * displayed, and passed using most other means without corruption.
-     *
-     * @param   string  $data   Data to be encrypted.
-     * @return  string
+     * @param string $data Data to be encrypted.
+     * @return string
      */
-    abstract public function encode($data);
+    abstract public function encode(string $data): string;
+
     /**
      * Decrypts an encoded string back to its original value.
      *
-     *     $data = $encrypt->decode($data);
-     *
-     * @param   string  $data   Encoded string to be decrypted.
-     * @return  false   If decryption fails.
-     * @return  string
+     * @param string $data Encoded string to be decrypted.
+     * @return string|false
      */
-    abstract public function decode($data);
+    abstract public function decode(string $data): string|false;
 }
