@@ -7,7 +7,9 @@
  * @copyright  (c) 2009-2012 Kohana Team
  * @license    https://kohana.top/license
  */
-class Kohana_Validation_Exception extends Kohana_Exception
+ namespace Kohana\Validation;
+ 
+class ValidationException extends \Exception
 {
     /**
      * @var  object  Validation instance
