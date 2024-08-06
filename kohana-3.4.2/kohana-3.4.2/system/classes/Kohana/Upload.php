@@ -1,7 +1,8 @@
 <?php
+declare(strict_types=1);
 
 /**
- * Upload helper class for working with uploaded files and [Validation].
+ * Upload helper class for working with uploaded files and validation.
  *
  *     $array = Validation::factory($_FILES);
  *
@@ -10,26 +11,24 @@
  *
  * The following configuration properties can be set:
  *
- * - [Upload::$remove_spaces]
- * - [Upload::$default_directory]
+ * - [Upload::$removeSpaces]
+ * - [Upload::$defaultDirectory]
  *
- * @package    Kohana
+ * @package    Kohana 2024
  * @category   Helpers
- * @author     Kohana Team
- * @copyright  (c) 2007-2012 Kohana Team
- * @license    https://kohana.top/license
+ * @updated    Updated for PHP 8.3 with strict typing
  */
 class Kohana_Upload
 {
     /**
-     * @var  boolean  remove spaces in uploaded files
+     * @var bool Remove spaces in uploaded files
      */
-    public static $remove_spaces = true;
+    public static bool $removeSpaces = true;
 
     /**
-     * @var  string  default upload directory
+     * @var string Default upload directory
      */
-    public static $default_directory = 'upload';
+    public static string $defaultDirectory = 'upload';
 
     /**
      * Save an uploaded file to a new location. If no filename is provided,
@@ -37,42 +36,40 @@ class Kohana_Upload
      *
      * This method should be used after validating the $_FILES array:
      *
-     *     if ($array->check())
-     *     {
+     *     if ($array->check()) {
      *         // Upload is valid, save it
      *         Upload::save($array['file']);
      *     }
      *
-     * @param   array   $file       uploaded file data
-     * @param   string  $filename   new filename
-     * @param   string  $directory  new directory
-     * @param   integer $chmod      chmod mask
-     * @return  string  on success, full path to new file
-     * @return  false   on failure
+     * @param array $file Uploaded file data
+     * @param string|null $filename New filename
+     * @param string|null $directory New directory
+     * @param int $chmod Chmod mask
+     * @return string|false On success, full path to new file; on failure, false
      */
-    public static function save(array $file, $filename = null, $directory = null, $chmod = 0644)
+    public static function save(array $file, ?string $filename = null, ?string $directory = null, int $chmod = 0644): string|false
     {
-        if (!isset($file['tmp_name']) OR ! is_uploaded_file($file['tmp_name'])) {
+        if (!isset($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
             // Ignore corrupted uploads
             return false;
         }
 
         if ($filename === null) {
-            // Use the default filename, with a timestamp pre-pended
+            // Use the default filename, with a unique prefix
             $filename = uniqid() . $file['name'];
         }
 
-        if (Upload::$remove_spaces === true) {
+        if (self::$removeSpaces === true) {
             // Remove spaces from the filename
             $filename = preg_replace('/\s+/u', '_', $filename);
         }
 
         if ($directory === null) {
             // Use the pre-configured upload directory
-            $directory = Upload::$default_directory;
+            $directory = self::$defaultDirectory;
         }
 
-        if (!is_dir($directory) OR ! is_writable(realpath($directory))) {
+        if (!is_dir($directory) || !is_writable(realpath($directory))) {
             throw new Kohana_Exception('Directory :dir must be writable', [':dir' => Debug::path($directory)]);
         }
 
@@ -99,16 +96,12 @@ class Kohana_Upload
      *
      *     $array->rule('file', 'Upload::valid')
      *
-     * @param   array   $file   $_FILES item
-     * @return  bool
+     * @param array $file $_FILES item
+     * @return bool
      */
-    public static function valid($file)
+    public static function valid(array $file): bool
     {
-        return (isset($file['error'])
-            AND isset($file['name'])
-            AND isset($file['type'])
-            AND isset($file['tmp_name'])
-            AND isset($file['size']));
+        return isset($file['error'], $file['name'], $file['type'], $file['tmp_name'], $file['size']);
     }
 
     /**
@@ -116,15 +109,14 @@ class Kohana_Upload
      *
      *     $array->rule('file', 'Upload::not_empty');
      *
-     * @param   array   $file   $_FILES item
-     * @return  bool
+     * @param array $file $_FILES item
+     * @return bool
      */
-    public static function not_empty(array $file)
+    public static function not_empty(array $file): bool
     {
-        return (isset($file['error'])
-            AND isset($file['tmp_name'])
-            AND $file['error'] === UPLOAD_ERR_OK
-            AND is_uploaded_file($file['tmp_name']));
+        return isset($file['error'], $file['tmp_name']) &&
+            $file['error'] === UPLOAD_ERR_OK &&
+            is_uploaded_file($file['tmp_name']);
     }
 
     /**
@@ -132,34 +124,35 @@ class Kohana_Upload
      *
      *     $array->rule('file', 'Upload::type', [':value', ['jpg', 'png', 'gif']]);
      *
-     * @param   array   $file       $_FILES item
-     * @param   array   $allowed    allowed file extensions
-     * @return  bool
+     * @param array $file $_FILES item
+     * @param array $allowed Allowed file extensions
+     * @return bool
      */
-    public static function type(array $file, array $allowed)
+    public static function type(array $file, array $allowed): bool
     {
-        if ($file['error'] !== UPLOAD_ERR_OK)
+        if ($file['error'] !== UPLOAD_ERR_OK) {
             return true;
+        }
 
         $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
 
-        return in_array($ext, $allowed);
+        return in_array($ext, $allowed, true);
     }
 
     /**
      * Validation rule to test if an uploaded file is allowed by file size.
      * File sizes are defined as: SB, where S is the size (1, 8.5, 300, etc.)
      * and B is the byte unit (K, MiB, GB, etc.). All valid byte units are
-     * defined in Num::$byte_units
+     * defined in Num::$byte_units.
      *
-     *     $array->rule('file', 'Upload::size', [':value', '1M'])
-     *     $array->rule('file', 'Upload::size', [':value', '2.5KiB'])
+     *     $array->rule('file', 'Upload::size', [':value', '1M']);
+     *     $array->rule('file', 'Upload::size', [':value', '2.5KiB']);
      *
-     * @param   array   $file   $_FILES item
-     * @param   string  $size   maximum file size allowed
-     * @return  bool
+     * @param array $file $_FILES item
+     * @param string $size Maximum file size allowed
+     * @return bool
      */
-    public static function size(array $file, $size)
+    public static function size(array $file, string $size): bool
     {
         if ($file['error'] === UPLOAD_ERR_INI_SIZE) {
             // Upload is larger than PHP allowed size (upload_max_filesize)
@@ -172,17 +165,17 @@ class Kohana_Upload
         }
 
         // Convert the provided size to bytes for comparison
-        $size = Num::bytes($size);
+        $sizeInBytes = Num::bytes($size);
 
         // Test that the file is under or equal to the max size
-        return ($file['size'] <= $size);
+        return ($file['size'] <= $sizeInBytes);
     }
 
     /**
      * Validation rule to test if an upload is an image and, optionally, is the correct size.
      *
      *     // The "image" file must be an image
-     *     $array->rule('image', 'Upload::image')
+     *     $array->rule('image', 'Upload::image');
      *
      *     // The "photo" file has a maximum size of 640x480 pixels
      *     $array->rule('photo', 'Upload::image', [':value', 640, 480]);
@@ -190,48 +183,47 @@ class Kohana_Upload
      *     // The "image" file must be exactly 100x100 pixels
      *     $array->rule('image', 'Upload::image', [':value', 100, 100, true]);
      *
-     *
-     * @param   array   $file       $_FILES item
-     * @param   integer $max_width  maximum width of image
-     * @param   integer $max_height maximum height of image
-     * @param   boolean $exact      match width and height exactly?
-     * @return  boolean
+     * @param array $file $_FILES item
+     * @param int|null $maxWidth Maximum width of image
+     * @param int|null $maxHeight Maximum height of image
+     * @param bool $exact Match width and height exactly?
+     * @return bool
      */
-    public static function image(array $file, $max_width = null, $max_height = null, $exact = false)
+    public static function image(array $file, ?int $maxWidth = null, ?int $maxHeight = null, bool $exact = false): bool
     {
-        if (Upload::not_empty($file)) {
+        if (self::not_empty($file)) {
             try {
                 // Get the width and height from the uploaded image
                 list($width, $height) = getimagesize($file['tmp_name']);
             } catch (ErrorException $e) {
                 // Ignore read errors
+                return false;
             }
 
-            if (empty($width) OR empty($height)) {
+            if (empty($width) || empty($height)) {
                 // Cannot get image size, cannot validate
                 return false;
             }
 
-            if (!$max_width) {
+            if (!$maxWidth) {
                 // No limit, use the image width
-                $max_width = $width;
+                $maxWidth = $width;
             }
 
-            if (!$max_height) {
+            if (!$maxHeight) {
                 // No limit, use the image height
-                $max_height = $height;
+                $maxHeight = $height;
             }
 
             if ($exact) {
                 // Check if dimensions match exactly
-                return ($width === $max_width AND $height === $max_height);
+                return ($width === $maxWidth && $height === $maxHeight);
             } else {
                 // Check if size is within maximum dimensions
-                return ($width <= $max_width AND $height <= $max_height);
+                return ($width <= $maxWidth && $height <= $maxHeight);
             }
         }
 
         return false;
     }
-
 }
