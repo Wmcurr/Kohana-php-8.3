@@ -146,7 +146,7 @@ class Kohana_Log
 
         // Create a new message
         $this->_messages[] = [
-            'time' => time(),
+            'time' => (new DateTime())->getTimestamp(),
             'level' => $level,
             'body' => $message,
             'trace' => $trace,
