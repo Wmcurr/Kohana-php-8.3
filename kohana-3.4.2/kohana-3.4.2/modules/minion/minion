@@ -1,0 +1,28 @@
+#!/usr/bin/env php
+<?php
+
+// Установка обработки ошибок для CLI
+set_error_handler(function($errno, $errstr, $errfile, $errline) {
+    fwrite(STDERR, "Error: [$errno] $errstr in $errfile on line $errline\n");
+    exit(1);
+});
+// Definition of the project root directory and other necessary constants (replace with your own)
+// Определение корневой директории проекта и других необходимых констант (заменить на свои)
+define('SYSPATH', '/var/www/wmcurrency/data/www/wm/system/');
+define('APPPATH', '/var/www/wmcurrency/data/www/wm/app/');
+define('MODPATH', '/var/www/wmcurrency/data/www/wm/modules/');
+define('DOCROOT', '/var/www/wmcurrency/data/www/wm.uk/');  
+define('EXT', '.php');
+
+
+// Include the bootstrap.php file, where all the necessary settings are initialized
+// Подключаем файл bootstrap.php, где инициализируются все необходимые настройки
+require APPPATH . 'bootstrap.php';
+
+
+
+// Execute the command
+// Выполняем команду
+Kohana_CLI::execute();
+// после замены путей на свои запускаем install_minion.sh
+//after replacing the paths with our own, run install_minion.sh
