@@ -6,8 +6,7 @@
  * @package    Kohana
  * @category   Helpers
  * @author     Kohana Team
- * @copyright  (c) 2008-2012 Kohana Team
- * @license    https://kohana.top/license
+ * @copyright  (c) 2024 Kohana Team
  */
 class Kohana_Cookie
 {
@@ -187,7 +186,8 @@ class Kohana_Cookie
      */
     protected static function _time()
     {
-        return time();
+    return (new DateTime())->getTimestamp();
     }
+
 
 }
