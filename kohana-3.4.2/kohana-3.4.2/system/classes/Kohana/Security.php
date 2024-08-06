@@ -1,13 +1,12 @@
 <?php
+declare(strict_types=1);
 
 /**
  * Security helper class.
  *
  * @package    Kohana
  * @category   Security
- * @author     Kohana Team
- * @copyright  (c) 2007-2012 Kohana Team
- * @license    https://kohana.top/license
+ * @version    Updated for PHP 8.3 compatibility
  */
 class Kohana_Security
 {
@@ -39,23 +38,16 @@ class Kohana_Security
      * @return  string
      * @uses    Session::instance
      */
-    public static function token($new = false)
+    public static function token(bool $new = false): string
     {
         $session = Session::instance();
 
         // Get the current token
         $token = $session->get(Security::$token_name);
 
-        if ($new === true OR ! $token) {
+        if ($new === true || !$token) {
             // Generate a new unique token
-            if (function_exists('openssl_random_pseudo_bytes')) {
-                // Generate a random pseudo bytes token if openssl_random_pseudo_bytes is available
-                // This is more secure than uniqid, because uniqid relies on microtime, which is predictable
-                $token = base64_encode(openssl_random_pseudo_bytes(32));
-            } else {
-                // Otherwise, fall back to a hashed uniqid
-                $token = sha1(uniqid(null, true));
-            }
+            $token = bin2hex(random_bytes(32));
 
             // Store the new token
             $session->set(Security::$token_name, $token);
@@ -76,9 +68,9 @@ class Kohana_Security
      * @return  boolean
      * @uses    Security::token
      */
-    public static function check($token)
+    public static function check(string $token): bool
     {
-        return Security::slow_equals(Security::token(), $token);
+        return hash_equals(Security::token(), $token);
     }
 
     /**
@@ -89,13 +81,9 @@ class Kohana_Security
      * @param string $b cryptographic hash
      * @return boolean
      */
-    public static function slow_equals($a, $b)
+    public static function slow_equals(string $a, string $b): bool
     {
-        $diff = strlen($a) ^ strlen($b);
-        for ($i = 0; $i < strlen($a) AND $i < strlen($b); $i++) {
-            $diff |= ord($a[$i]) ^ ord($b[$i]);
-        }
-        return $diff === 0;
+        return hash_equals($a, $b);
     }
 
     /**
@@ -106,9 +94,62 @@ class Kohana_Security
      * @param   string  $str    string to sanitize
      * @return  string
      */
-    public static function encode_php_tags($str)
+    public static function encode_php_tags(string $str): string
     {
         return str_replace(['<?', '?>'], ['&lt;?', '?&gt;'], $str);
     }
 
+    /**
+     * Sanitize input by escaping special characters.
+     *
+     *     $str = Security::sanitize($str);
+     *
+     * @param   string  $str    string to sanitize
+     * @return  string
+     */
+    public static function sanitize(string $str): string
+    {
+        return htmlspecialchars($str, ENT_QUOTES, 'UTF-8');
+    }
+
+    /**
+     * Validate if the token is valid for the current session.
+     * Adds an extra layer of CSRF protection by validating the session.
+     *
+     * @param   string  $token  token to validate
+     * @return  boolean
+     */
+    public static function validate_token(string $token): bool
+    {
+        $session = Session::instance();
+        $stored_token = $session->get(Security::$token_name);
+
+        if (!$stored_token) {
+            return false;
+        }
+
+        return hash_equals($stored_token, $token);
+    }
+
+    /**
+     * Check for potential XSS attacks by searching for script tags or event handlers.
+     *
+     * @param   string  $data   data to check
+     * @return  boolean
+     */
+    public static function check_xss(string $data): bool
+    {
+        return preg_match('/<script\b[^>]*>.*?<\/script>|on\w+\s*=\s*["\'].*?["\']/', $data) === 1;
+    }
+
+    /**
+     * Generate a more secure random string suitable for cryptographic use.
+     *
+     * @param   int     $length length of the random string
+     * @return  string
+     */
+    public static function generate_secure_string(int $length = 64): string
+    {
+        return bin2hex(random_bytes($length));
+    }
 }
