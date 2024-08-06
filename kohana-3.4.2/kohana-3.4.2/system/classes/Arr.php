@@ -1,6 +1,6 @@
 <?php
 
-class Arr extends Kohana_Arr
+class Arr extends Kohana\Arr
 {
     
 }
