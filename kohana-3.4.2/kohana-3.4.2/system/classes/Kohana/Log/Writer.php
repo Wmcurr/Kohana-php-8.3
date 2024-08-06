@@ -66,29 +66,32 @@ abstract class Kohana_Log_Writer
         return spl_object_hash($this);
     }
 
-    /**
-     * Formats a log entry.
-     *
-     * @param   array   $message
-     * @param   string  $format
-     * @return  string
-     */
-    public function format_message(array $message, $format = "time --- level: body in file:line")
-    {
-        $message['time'] = Date::formatted_time('@' . $message['time'], Log_Writer::$timestamp, Log_Writer::$timezone, true);
-        $message['level'] = $this->_log_levels[$message['level']];
+/**
+ * Formats a log entry.
+ *
+ * @param   array   $message
+ * @param   string  $format
+ * @return  string
+ */
+public function format_message(array $message, $format = "time --- level: body in file:line")
+{
+    $datetime = new DateTime('@' . $message['time']);
+    $datetime->setTimezone(new DateTimeZone(Log_Writer::$timezone ?? date_default_timezone_get()));
+    $message['time'] = $datetime->format(Log_Writer::$timestamp ?? Date::$timestamp_format);
+    $message['level'] = $this->_log_levels[$message['level']];
 
-        $string = strtr($format, array_filter($message, 'is_scalar'));
+    $string = strtr($format, array_filter($message, 'is_scalar'));
 
-        if (isset($message['additional']['exception'])) {
-            // Re-use as much as possible, just resetting the body to the trace
-            $message['body'] = $message['additional']['exception']->getTraceAsString();
-            $message['level'] = $this->_log_levels[Log_Writer::$strace_level];
+    if (isset($message['additional']['exception'])) {
+        // Re-use as much as possible, just resetting the body to the trace
+        $message['body'] = $message['additional']['exception']->getTraceAsString();
+        $message['level'] = $this->_log_levels[Log_Writer::$strace_level];
 
-            $string .= PHP_EOL . strtr($format, array_filter($message, 'is_scalar'));
-        }
-
-        return $string;
+        $string .= PHP_EOL . strtr($format, array_filter($message, 'is_scalar'));
     }
+
+    return $string;
+}
+
 
 }
