@@ -1,25 +1,25 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Base session class.
  *
  * @package    Kohana
  * @category   Session
- * @author     Kohana Team
- * @copyright  (c) 2008-2012 Kohana Team
- * @license    https://kohana.top/license
+ * @modified   2024-07-24 - PHP 8.3 strict typing and session security enhancements
  */
 abstract class Kohana_Session
 {
     /**
-     * @var  string  default session adapter
+     * @var string default session adapter
      */
-    public static $default = 'native';
+    public static string $default = 'native';
 
     /**
-     * @var  array  session instances
+     * @var array session instances
      */
-    public static $instances = [];
+    public static array $instances = [];
 
     /**
      * Creates a singleton session of the given type. Some session types
@@ -30,12 +30,12 @@ abstract class Kohana_Session
      *
      * [!!] [Session::write] will automatically be called when the request ends.
      *
-     * @param   string  $type   type of session (native, cookie, etc)
-     * @param   string  $id     session identifier
-     * @return  Session
-     * @uses    Kohana::$config
+     * @param string|null $type type of session (native, cookie, etc)
+     * @param string|null $id session identifier
+     * @return Session
+     * @uses Kohana::$config
      */
-    public static function instance($type = null, $id = null)
+    public static function instance(?string $type = null, ?string $id = null): Session
     {
         if ($type === null) {
             // Use the default type
@@ -60,41 +60,41 @@ abstract class Kohana_Session
     }
 
     /**
-     * @var  string  cookie name
+     * @var string cookie name
      */
-    protected $_name = 'session';
+    protected string $_name = 'session';
 
     /**
-     * @var  int  cookie lifetime
+     * @var int cookie lifetime
      */
-    protected $_lifetime = 0;
+    protected int $_lifetime = 0;
 
     /**
-     * @var  bool  encrypt session data?
+     * @var bool encrypt session data?
      */
-    protected $_encrypted = false;
+    protected bool $_encrypted = false;
 
     /**
-     * @var  array  session data
+     * @var array session data
      */
-    protected $_data = [];
+    protected array $_data = [];
 
     /**
-     * @var  bool  session destroyed?
+     * @var bool session destroyed?
      */
-    protected $_destroyed = false;
+    protected bool $_destroyed = false;
 
     /**
      * Overloads the name, lifetime, and encrypted session settings.
      *
      * [!!] Sessions can only be created using the [Session::instance] method.
      *
-     * @param   array   $config configuration
-     * @param   string  $id     session id
-     * @return  void
-     * @uses    Session::read
+     * @param array|null $config configuration
+     * @param string|null $id session id
+     * @return void
+     * @uses Session::read
      */
-    public function __construct(array $config = null, $id = null)
+    public function __construct(array $config = null, ?string $id = null)
     {
         if (isset($config['name'])) {
             // Cookie name to store the session id in
@@ -113,7 +113,7 @@ abstract class Kohana_Session
             }
 
             // Enable or disable encryption of data
-            $this->_encrypted = $config['encrypted'];
+            $this->_encrypted = (bool) $config['encrypted'];
         }
 
         // Load the session
@@ -125,19 +125,21 @@ abstract class Kohana_Session
      * enabled, the session will be encrypted. If not, the output string will
      * be encoded.
      *
-     *     echo $session;
-     *
-     * @return  string
-     * @uses    Encrypt::encode
+     * @return string
+     * @uses Encrypt::encode
      */
-    public function __toString()
+    public function __toString(): string
     {
         // Serialize the data array
         $data = $this->_serialize($this->_data);
 
         if ($this->_encrypted) {
-            // Encrypt the data using the default key
-            $data = Encrypt::instance($this->_encrypted)->encode($data);
+            // Generate a new encryption key for this session
+            $key = $this->_generate_encryption_key();
+            $_SESSION['_encryption_key'] = $key;
+
+            // Encrypt the data using the generated key
+            $data = $this->_encrypt($data, $key);
         } else {
             // Encode the data
             $data = $this->_encode($data);
@@ -150,15 +152,9 @@ abstract class Kohana_Session
      * Returns the current session array. The returned array can also be
      * assigned by reference.
      *
-     *     // Get a copy of the current session data
-     *     $data = $session->as_array();
-     *
-     *     // Assign by reference for modification
-     *     $data =& $session->as_array();
-     *
-     * @return  array
+     * @return array
      */
-    public function & as_array()
+    public function &as_array(): array
     {
         return $this->_data;
     }
@@ -166,14 +162,9 @@ abstract class Kohana_Session
     /**
      * Get the current session id, if the session supports it.
      *
-     *     $id = $session->id();
-     *
-     * [!!] Not all session types have ids.
-     *
-     * @return  string
-     * @since   3.0.8
+     * @return string|null
      */
-    public function id()
+    public function id(): ?string
     {
         return null;
     }
@@ -181,12 +172,9 @@ abstract class Kohana_Session
     /**
      * Get the current session cookie name.
      *
-     *     $name = $session->name();
-     *
-     * @return  string
-     * @since   3.0.8
+     * @return string
      */
-    public function name()
+    public function name(): string
     {
         return $this->_name;
     }
@@ -194,13 +182,11 @@ abstract class Kohana_Session
     /**
      * Get a variable from the session array.
      *
-     *     $foo = $session->get('foo');
-     *
-     * @param   string  $key        variable name
-     * @param   mixed   $default    default value to return
-     * @return  mixed
+     * @param string $key variable name
+     * @param mixed $default default value to return
+     * @return mixed
      */
-    public function get($key, $default = null)
+    public function get(string $key, $default = null)
     {
         return array_key_exists($key, $this->_data) ? $this->_data[$key] : $default;
     }
@@ -208,89 +194,75 @@ abstract class Kohana_Session
     /**
      * Get and delete a variable from the session array.
      *
-     *     $bar = $session->get_once('bar');
-     *
-     * @param   string  $key        variable name
-     * @param   mixed   $default    default value to return
-     * @return  mixed
+     * @param string $key variable name
+     * @param mixed $default default value to return
+     * @return mixed
      */
-    public function get_once($key, $default = null)
+    public function get_once(string $key, $default = null)
     {
         $value = $this->get($key, $default);
-
         unset($this->_data[$key]);
-
         return $value;
     }
 
     /**
      * Set a variable in the session array.
      *
-     *     $session->set('foo', 'bar');
-     *
-     * @param   string  $key    variable name
-     * @param   mixed   $value  value
-     * @return  $this
+     * @param string $key variable name
+     * @param mixed $value value
+     * @return $this
      */
-    public function set($key, $value)
+    public function set(string $key, $value): self
     {
         $this->_data[$key] = $value;
-
         return $this;
     }
 
     /**
      * Set a variable by reference.
      *
-     *     $session->bind('foo', $foo);
-     *
-     * @param   string  $key    variable name
-     * @param   mixed   $value  referenced value
-     * @return  $this
+     * @param string $key variable name
+     * @param mixed $value referenced value
+     * @return $this
      */
-    public function bind($key, & $value)
+    public function bind(string $key, &$value): self
     {
-        $this->_data[$key] = & $value;
-
+        $this->_data[$key] = &$value;
         return $this;
     }
 
     /**
      * Removes a variable in the session array.
      *
-     *     $session->delete('foo');
-     *
-     * @param   string  $key,...    variable name
-     * @return  $this
+     * @param string ...$keys variable names
+     * @return $this
      */
-    public function delete($key)
+    public function delete(string ...$keys): self
     {
-        $args = func_get_args();
-
-        foreach ($args as $key) {
+        foreach ($keys as $key) {
             unset($this->_data[$key]);
         }
-
         return $this;
     }
 
     /**
      * Loads existing session data.
      *
-     *     $session->read();
-     *
-     * @param   string  $id session id
-     * @return  void
+     * @param string|null $id session id
+     * @return void
      */
-    public function read($id = null)
+    public function read(?string $id = null): void
     {
         $data = null;
 
         try {
             if (is_string($data = $this->_read($id))) {
                 if ($this->_encrypted) {
-                    // Decrypt the data using the default key
-                    $data = Encrypt::instance($this->_encrypted)->decode($data);
+                    // Decrypt the data using the stored key
+                    $key = $_SESSION['_encryption_key'] ?? null;
+                    if ($key) {
+                        $data = $this->_decrypt($data, $key);
+                    }
                 } else {
                     // Decode the data
                     $data = $this->_decode($data);
@@ -303,7 +275,7 @@ abstract class Kohana_Session
             }
         } catch (Exception $e) {
             // Error reading the session, usually a corrupt session.
-            throw new Session_Exception('Error reading session data.', null, Session_Exception::SESSION_CORRUPT);
+            throw new Session_Exception('Error reading session data.', 0, $e);
         }
 
         if (is_array($data)) {
@@ -315,11 +287,9 @@ abstract class Kohana_Session
     /**
      * Generates a new session id and returns it.
      *
-     *     $id = $session->regenerate();
-     *
-     * @return  string
+     * @return string
      */
-    public function regenerate()
+    public function regenerate(): string
     {
         return $this->_regenerate();
     }
@@ -327,32 +297,25 @@ abstract class Kohana_Session
     /**
      * Sets the last_active timestamp and saves the session.
      *
-     *     $session->write();
-     *
-     * [!!] Any errors that occur during session writing will be logged,
-     * but not displayed, because sessions are written after output has
-     * been sent.
-     *
-     * @return  boolean
-     * @uses    Kohana::$log
+     * @return bool
+     * @uses Kohana::$log
      */
-    public function write()
+    public function write(): bool
     {
-        if (headers_sent() OR $this->_destroyed) {
+        if (headers_sent() || $this->_destroyed) {
             // Session cannot be written when the headers are sent or when
             // the session has been destroyed
             return false;
         }
 
         // Set the last active timestamp
-        $this->_data['last_active'] = time();
+        $this->_data['last_active'] = (new DateTime())->getTimestamp();
 
         try {
             return $this->_write();
         } catch (Exception $e) {
             // Log & ignore all errors when a write fails
             Kohana::$log->add(Log::ERROR, Kohana_Exception::text($e))->write();
-
             return false;
         }
     }
@@ -360,11 +323,9 @@ abstract class Kohana_Session
     /**
      * Completely destroy the current session.
      *
-     *     $success = $session->destroy();
-     *
-     * @return  boolean
+     * @return bool
      */
-    public function destroy()
+    public function destroy(): bool
     {
         if ($this->_destroyed === false) {
             if ($this->_destroyed = $this->_destroy()) {
@@ -379,11 +340,9 @@ abstract class Kohana_Session
     /**
      * Restart the session.
      *
-     *     $success = $session->restart();
-     *
-     * @return  boolean
+     * @return bool
      */
-    public function restart()
+    public function restart(): bool
     {
         if ($this->_destroyed === false) {
             // Wipe out the current session.
@@ -399,10 +358,10 @@ abstract class Kohana_Session
     /**
      * Serializes the session data.
      *
-     * @param   array  $data  data
-     * @return  string
+     * @param array $data data
+     * @return string
      */
-    protected function _serialize($data)
+    protected function _serialize(array $data): string
     {
         return serialize($data);
     }
@@ -410,10 +369,10 @@ abstract class Kohana_Session
     /**
      * Unserializes the session data.
      *
-     * @param   string  $data  data
-     * @return  array
+     * @param string $data data
+     * @return array
      */
-    protected function _unserialize($data)
+    protected function _unserialize(string $data): array
     {
         return unserialize($data);
     }
@@ -421,10 +380,10 @@ abstract class Kohana_Session
     /**
      * Encodes the session data using [base64_encode].
      *
-     * @param   string  $data  data
-     * @return  string
+     * @param string $data data
+     * @return string
      */
-    protected function _encode($data)
+    protected function _encode(string $data): string
     {
         return base64_encode($data);
     }
@@ -432,43 +391,86 @@ abstract class Kohana_Session
     /**
      * Decodes the session data using [base64_decode].
      *
-     * @param   string  $data  data
-     * @return  string
+     * @param string $data data
+     * @return string
      */
-    protected function _decode($data)
+    protected function _decode(string $data): string
     {
         return base64_decode($data);
     }
 
     /**
+     * Encrypts the data using the given key.
+     *
+     * @param string $data data to encrypt
+     * @param string $key encryption key
+     * @return string
+     */
+    protected function _encrypt(string $data, string $key): string
+    {
+        $iv = random_bytes(openssl_cipher_iv_length('aes-256-cbc'));
+        $encrypted = openssl_encrypt($data, 'aes-256-cbc', $key, 0, $iv);
+        return base64_encode($iv . $encrypted);
+    }
+
+    /**
+     * Decrypts the data using the given key.
+     *
+     * @param string $data data to decrypt
+     * @param string $key decryption key
+     * @return string
+     */
+    protected function _decrypt(string $data, string $key): string
+    {
+        $data = base64_decode($data);
+        $iv = substr($data, 0, openssl_cipher_iv_length('aes-256-cbc'));
+        $encrypted = substr($data, openssl_cipher_iv_length('aes-256-cbc'));
+        return openssl_decrypt($encrypted, 'aes-256-cbc', $key, 0, $iv);
+    }
+
+    /**
+     * Generates a new encryption key.
+     *
+     * @return string
+     */
+    protected function _generate_encryption_key(): string
+    {
+        return bin2hex(random_bytes(32));
+    }
+
+    /**
      * Loads the raw session data string and returns it.
      *
-     * @param   string  $id session id
-     * @return  string
+     * @param string|null $id session id
+     * @return string|null
      */
-    abstract protected function _read($id = null);
+    abstract protected function _read(?string $id = null): ?string;
+
     /**
      * Generate a new session id and return it.
      *
-     * @return  string
+     * @return string
      */
-    abstract protected function _regenerate();
+    abstract protected function _regenerate(): string;
+
     /**
      * Writes the current session.
      *
-     * @return  boolean
+     * @return bool
      */
-    abstract protected function _write();
+    abstract protected function _write(): bool;
+
     /**
      * Destroys the current session.
      *
-     * @return  boolean
+     * @return bool
      */
-    abstract protected function _destroy();
+    abstract protected function _destroy(): bool;
+
     /**
      * Restarts the current session.
      *
-     * @return  boolean
+     * @return bool
      */
-    abstract protected function _restart();
+    abstract protected function _restart(): bool;
 }
