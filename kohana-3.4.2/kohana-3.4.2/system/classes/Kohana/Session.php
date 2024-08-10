@@ -251,38 +251,33 @@ abstract class Kohana_Session
      * @param string|null $id session id
      * @return void
      */
-    public function read(?string $id = null): void
-    {
-        $data = null;
+public function read(?string $id = null): void
+{
+    $data = null;
 
-        try {
-            if (is_string($data = $this->_read($id))) {
-                if ($this->_encrypted) {
-                    // Decrypt the data using the stored key
-                    $key = $_SESSION['_encryption_key'] ?? null;
-                    if ($key) {
-                        $data = $this->_decrypt($data, $key);
-                    }
+    try {
+        if (is_string($data = $this->_read($id))) {
+            if ($this->_encrypted) {
+                $key = $_SESSION['_encryption_key'] ?? null;
+                if ($key) {
+                    $data = $this->_decrypt($data, $key);
                 } else {
-                    // Decode the data
-                    $data = $this->_decode($data);
+                    throw new Session_Exception('Missing encryption key for session.');
                 }
-
-                // Unserialize the data
-                $data = $this->_unserialize($data);
             } else {
-                // Ignore these, session is valid, likely no data though.
+                $data = $this->_decode($data);
             }
-        } catch (Exception $e) {
-            // Error reading the session, usually a corrupt session.
-            throw new Session_Exception('Error reading session data.', 0, $e);
-        }
 
-        if (is_array($data)) {
-            // Load the data locally
-            $this->_data = $data;
+            $data = $this->_unserialize($data);
         }
+    } catch (Exception $e) {
+        throw new Session_Exception('Error reading session data.', 0, $e);
     }
+
+    if (is_array($data)) {
+        $this->_data = $data;
+    }
+}
 
     /**
      * Generates a new session id and returns it.
@@ -372,10 +367,14 @@ abstract class Kohana_Session
      * @param string $data data
      * @return array
      */
-    protected function _unserialize(string $data): array
-    {
-        return unserialize($data);
+protected function _unserialize(string $data): array
+{
+    $result = @unserialize($data);
+    if ($result === false && $data !== serialize(false)) {
+        throw new Session_Exception('Failed to unserialize session data.');
     }
+    return $result;
+}
 
     /**
      * Encodes the session data using [base64_encode].
