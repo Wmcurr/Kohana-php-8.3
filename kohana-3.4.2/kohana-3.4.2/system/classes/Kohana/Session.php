@@ -251,33 +251,38 @@ abstract class Kohana_Session
      * @param string|null $id session id
      * @return void
      */
-public function read(?string $id = null): void
-{
-    $data = null;
+    public function read(?string $id = null): void
+    {
+        $data = null;
 
-    try {
-        if (is_string($data = $this->_read($id))) {
-            if ($this->_encrypted) {
-                $key = $_SESSION['_encryption_key'] ?? null;
-                if ($key) {
-                    $data = $this->_decrypt($data, $key);
+        try {
+            if (is_string($data = $this->_read($id))) {
+                if ($this->_encrypted) {
+                    // Decrypt the data using the stored key
+                    $key = $_SESSION['_encryption_key'] ?? null;
+                    if ($key) {
+                        $data = $this->_decrypt($data, $key);
+                    }
                 } else {
-                    throw new Session_Exception('Missing encryption key for session.');
+                    // Decode the data
+                    $data = $this->_decode($data);
                 }
+
+                // Unserialize the data
+                $data = $this->_unserialize($data);
             } else {
-                $data = $this->_decode($data);
+                // Ignore these, session is valid, likely no data though.
             }
-
-            $data = $this->_unserialize($data);
+        } catch (Exception $e) {
+            // Error reading the session, usually a corrupt session.
+            throw new Session_Exception('Error reading session data.', 0, $e);
         }
-    } catch (Exception $e) {
-        throw new Session_Exception('Error reading session data.', 0, $e);
-    }
 
-    if (is_array($data)) {
-        $this->_data = $data;
+        if (is_array($data)) {
+            // Load the data locally
+            $this->_data = $data;
+        }
     }
-}
 
     /**
      * Generates a new session id and returns it.
@@ -405,12 +410,7 @@ protected function _unserialize(string $data): array
      * @param string $key encryption key
      * @return string
      */
-    protected function _encrypt(string $data, string $key): string
-    {
-        $iv = random_bytes(openssl_cipher_iv_length('aes-256-cbc'));
-        $encrypted = openssl_encrypt($data, 'aes-256-cbc', $key, 0, $iv);
-        return base64_encode($iv . $encrypted);
-    }
+    abstract protected function _encrypt(string $data, string $key): string;
 
     /**
      * Decrypts the data using the given key.
@@ -419,23 +419,17 @@ protected function _unserialize(string $data): array
      * @param string $key decryption key
      * @return string
      */
-    protected function _decrypt(string $data, string $key): string
-    {
-        $data = base64_decode($data);
-        $iv = substr($data, 0, openssl_cipher_iv_length('aes-256-cbc'));
-        $encrypted = substr($data, openssl_cipher_iv_length('aes-256-cbc'));
-        return openssl_decrypt($encrypted, 'aes-256-cbc', $key, 0, $iv);
-    }
+    abstract protected function _decrypt(string $data, string $key): string;
+
 
     /**
      * Generates a new encryption key.
      *
      * @return string
      */
-    protected function _generate_encryption_key(): string
-    {
-        return bin2hex(random_bytes(32));
-    }
+     abstract protected function _generate_encryption_key(): string;
+
+
 
     /**
      * Loads the raw session data string and returns it.
