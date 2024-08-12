@@ -7,18 +7,35 @@ declare(strict_types=1);
  *
  * @package    Kohana
  * @category   Cookie
- * @modified   2024-07-24 - PHP 8.3 strict typing and Cookie
+ * @modified   2024-08-12 - PHP 8.3 strict typing, improved security and performance
  */
 class Kohana_Session_Native extends Session
 {
+    // Constants defining session lifetime and regeneration interval
+    private const SESSION_LIFETIME = 3600; // 1 hour
+    private const REGENERATION_INTERVAL = 1800; // 30 minutes
+
+    private ?int $_current_time = null;
+
+    /**
+     * Returns the current session ID.
+     *
+     * @return string
+     */
     public function id(): string
     {
         return session_id();
     }
 
+    /**
+     * Reads session data, validating and regenerating the session if necessary.
+     *
+     * @param string|null $id
+     * @return string|null
+     */
     protected function _read(?string $id = null): ?string
     {
-        // Настройки параметров куки для сессии
+        // Set session cookie parameters
         session_set_cookie_params([
             'lifetime' => $this->_lifetime,
             'path' => Cookie::$path,
@@ -28,13 +45,15 @@ class Kohana_Session_Native extends Session
             'samesite' => 'Lax'
         ]);
 
+        // Set the session name
         session_name($this->_name);
 
+        // If a session ID is provided, set it
         if ($id !== null) {
             session_id($id);
         }
 
-        // Запуск сессии с дополнительными параметрами безопасности
+        // Start the session with enhanced security options
         session_start([
             'use_strict_mode' => true,
             'sid_length' => 48,
@@ -42,9 +61,10 @@ class Kohana_Session_Native extends Session
             'cache_limiter' => ''
         ]);
 
+        // Reference the session data
         $this->_data = &$_SESSION;
 
-        // Проверка подлинности сессии и регенерация, если необходимо
+        // Validate and possibly regenerate the session
         if (!$this->_validate_session()) {
             $this->regenerate();
             $_SESSION = [];
@@ -55,139 +75,208 @@ class Kohana_Session_Native extends Session
         return null;
     }
 
- protected function _write(): bool
-{
-    if ($this->_destroyed) {
-        return false;
+    /**
+     * Writes the session data to storage.
+     *
+     * @return bool
+     */
+    protected function _write(): bool
+    {
+        if ($this->_destroyed) {
+            return false;
+        }
+
+        // Update the last active time and close the session
+        $_SESSION['_last_active'] = $this->_current_time();
+        return session_write_close();
     }
 
-    $_SESSION['_last_active'] = (new DateTime())->getTimestamp();
-    return session_write_close();
-}
-
-protected function _regenerate(): string
-{
-    session_regenerate_id(true);
-    return session_id();
-}
-
-public function regenerate(): string
-{
-    $_SESSION['_last_regenerate'] = (new DateTime())->getTimestamp();
-    session_regenerate_id(true);
-    return session_id();
-}
-
-protected function _restart(): bool
-{
-    $status = session_start([
-        'use_strict_mode' => true,
-        'sid_length' => 48,
-        'sid_bits_per_character' => 6,
-        'cache_limiter' => ''
-    ]);
-    $this->_data = &$_SESSION;
-    return $status;
-}
-
-protected function _destroy(): bool
-{
-    // Удаляем все данные из сессии
-    $_SESSION = [];
-
-    // Получаем параметры куки для текущей сессии
-    $params = session_get_cookie_params();
-
-    // Удаляем сессионные куки, устанавливая срок их действия в прошлое
-    setcookie($this->_name, '', (new DateTime())->getTimestamp() - 42000,
-        $params['path'], $params['domain'],
-        $params['secure'], $params['httponly']
-    );
-
-    // Разрушаем сессию
-    session_destroy();
-
-    // Проверяем, что сессия действительно уничтожена
-    $status = session_id() === '';
-
-    if ($status) {
-        // Удаляем соответствующий куки
-        Cookie::delete($this->_name);
+    /**
+     * Regenerates the session ID.
+     *
+     * @return string
+     */
+    protected function _regenerate(): string
+    {
+        session_regenerate_id(true);
+        return session_id();
     }
 
-    return $status;
-}
+    /**
+     * Public method to trigger session regeneration if needed.
+     *
+     * @return string
+     */
+    public function regenerate(): string
+    {
+        if ($this->_should_regenerate()) {
+            $_SESSION['_last_regenerate'] = $this->_current_time();
+            session_regenerate_id(true);
+            $this->_update_fingerprint();
+        }
+        return session_id();
+    }
 
-private function _should_regenerate(): bool
-{
-    return !isset($_SESSION['_last_regenerate']) ||
-           ((new DateTime())->getTimestamp() - $_SESSION['_last_regenerate']) > 900; // 15 минут
-}
+    /**
+     * Restarts the session.
+     *
+     * @return bool
+     */
+    protected function _restart(): bool
+    {
+        session_start([
+            'use_strict_mode' => true,
+            'sid_length' => 48,
+            'sid_bits_per_character' => 6,
+            'cache_limiter' => ''
+        ]);
+        $this->_data = &$_SESSION;
+        return session_status() === PHP_SESSION_ACTIVE;
+    }
 
-private function _validate_session(): bool
-{
-    // Если сессия только что создана, инициализируем отпечаток и время создания
-    if (!isset($_SESSION['_created'])) {
-        $_SESSION['_created'] = (new DateTime())->getTimestamp();
-        $_SESSION['_fingerprint'] = $this->_generate_fingerprint();
+    /**
+     * Destroys the session.
+     *
+     * @return bool
+     */
+    protected function _destroy(): bool
+    {
+        $_SESSION = [];
+
+        // Clear the session cookie
+        $params = session_get_cookie_params();
+        setcookie($this->_name, '', $this->_current_time() - 42000,
+            $params['path'], $params['domain'],
+            $params['secure'], $params['httponly']
+        );
+
+        session_destroy();
+        return session_id() === '';
+    }
+
+    /**
+     * Checks whether the session should be regenerated.
+     *
+     * @return bool
+     */
+    private function _should_regenerate(): bool
+    {
+        return !isset($_SESSION['_last_regenerate']) ||
+               ($this->_current_time() - $_SESSION['_last_regenerate']) > self::REGENERATION_INTERVAL;
+    }
+
+    /**
+     * Validates the session based on creation time and fingerprint.
+     *
+     * @return bool
+     */
+    private function _validate_session(): bool
+    {
+        if (!isset($_SESSION['_created'])) {
+            // Initialize new session
+            $_SESSION['_created'] = $this->_current_time();
+            $_SESSION['_last_regenerate'] = $this->_current_time();
+            $_SESSION['_fingerprint'] = $this->_generate_fingerprint();
+            return true;
+        }
+
+        // Check if the session has expired
+        if ($this->_current_time() - $_SESSION['_created'] > self::SESSION_LIFETIME) {
+            return false;
+        }
+
+        // Validate the session fingerprint
+        if ($_SESSION['_fingerprint'] !== $this->_generate_fingerprint()) {
+            return false;
+        }
+
+        // Update the session fingerprint
+        $this->_update_fingerprint();
         return true;
     }
 
-    // Проверяем отпечаток сессии
-    if ($_SESSION['_fingerprint'] !== $this->_generate_fingerprint()) {
-        return false;
-    }
-
-    // Обновляем отпечаток сессии
-    $_SESSION['_fingerprint'] = $this->_generate_fingerprint();
-    return true;
-}
-
-
+    /**
+     * Generates a unique fingerprint for the session.
+     *
+     * @return string
+     */
     private function _generate_fingerprint(): string
     {
         return hash('sha256', 
             $_SERVER['HTTP_USER_AGENT'] . 
-            (ip2long($_SERVER['REMOTE_ADDR']) & ip2long('255.255.0.0'))
+            (ip2long($_SERVER['REMOTE_ADDR']) & ip2long('255.255.0.0')) .
+            __DIR__
         );
     }
 
     /**
-     * Encrypts the data using the given key.
+     * Updates the session fingerprint.
+     */
+    private function _update_fingerprint(): void
+    {
+        $_SESSION['_fingerprint'] = $this->_generate_fingerprint();
+    }
+
+    /**
+     * Returns the current time, used for session timing.
      *
-     * @param string $data data to encrypt
-     * @param string $key encryption key
+     * @return int
+     */
+    private function _current_time(): int
+    {
+        return $this->_current_time ?? $this->_current_time = (new DateTime())->getTimestamp();
+    }
+
+    /**
+     * Encrypts session data using AES-256-GCM.
+     *
+     * @param string $data
+     * @param string $key
      * @return string
      */
     protected function _encrypt(string $data, string $key): string
     {
-        $iv = random_bytes(openssl_cipher_iv_length('aes-256-cbc'));
-        $encrypted = openssl_encrypt($data, 'aes-256-cbc', $key, 0, $iv);
-        return base64_encode($iv . $encrypted);
+        try {
+            $iv = random_bytes(openssl_cipher_iv_length('aes-256-gcm'));
+            $tag = '';
+            $encrypted = openssl_encrypt($data, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+            return base64_encode($iv . $tag . $encrypted);
+        } catch (Exception $e) {
+            throw new RuntimeException('Failed to encrypt data');
+        }
     }
 
     /**
-     * Decrypts the data using the given key.
+     * Decrypts session data using AES-256-GCM.
      *
-     * @param string $data data to decrypt
-     * @param string $key decryption key
+     * @param string $data
+     * @param string $key
      * @return string
      */
     protected function _decrypt(string $data, string $key): string
     {
-        $data = base64_decode($data);
-        $iv = substr($data, 0, openssl_cipher_iv_length('aes-256-cbc'));
-        $encrypted = substr($data, openssl_cipher_iv_length('aes-256-cbc'));
-        return openssl_decrypt($encrypted, 'aes-256-cbc', $key, 0, $iv);
+        try {
+            $data = base64_decode($data);
+            $ivlen = openssl_cipher_iv_length('aes-256-gcm');
+            $iv = substr($data, 0, $ivlen);
+            $tag = substr($data, $ivlen, 16);
+            $encrypted = substr($data, $ivlen + 16);
+            return openssl_decrypt($encrypted, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+        } catch (Exception $e) {
+            throw new RuntimeException('Failed to decrypt data');
+        }
     }
 
     /**
-     * Generates a new encryption key.
+     * Generates or retrieves an encryption key for the session.
      *
      * @return string
      */
     protected function _generate_encryption_key(): string
     {
-        return bin2hex(random_bytes(32));
+        if (!isset($_SESSION['_encryption_key'])) {
+            $_SESSION['_encryption_key'] = bin2hex(random_bytes(32));
+        }
+        return $_SESSION['_encryption_key'];
     }
 }
