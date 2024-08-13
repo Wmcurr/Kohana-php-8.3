@@ -7,7 +7,7 @@ declare(strict_types=1);
  *
  * @package    Kohana
  * @category   Cookie
- * @modified   2024-08-12 - PHP 8.3 strict typing, improved security and performance
+ * @modified   2024-08-13 - Added support for multiple serialization formats, adaptive regeneration, and asynchronous session saving.
  */
 class Kohana_Session_Native extends Session
 {
@@ -16,6 +16,21 @@ class Kohana_Session_Native extends Session
     private const REGENERATION_INTERVAL = 1800; // 30 minutes
 
     private ?int $_current_time = null;
+    private string $_serialization_format = 'json'; // Default serialization format
+
+    /**
+     * Sets the serialization format.
+     *
+     * @param string $format
+     */
+    public function setSerializationFormat(string $format): void
+    {
+        $allowed_formats = ['json', 'serialize', 'msgpack'];
+        if (!in_array($format, $allowed_formats, true)) {
+            throw new InvalidArgumentException('Unsupported serialization format.');
+        }
+        $this->_serialization_format = $format;
+    }
 
     /**
      * Returns the current session ID.
@@ -45,21 +60,21 @@ class Kohana_Session_Native extends Session
             'samesite' => 'Lax'
         ]);
 
-        // Set the session name
         session_name($this->_name);
 
-        // If a session ID is provided, set it
         if ($id !== null) {
             session_id($id);
         }
 
         // Start the session with enhanced security options
-        session_start([
+        if (!session_start([
             'use_strict_mode' => true,
             'sid_length' => 48,
             'sid_bits_per_character' => 6,
             'cache_limiter' => ''
-        ]);
+        ])) {
+            return null;
+        }
 
         // Reference the session data
         $this->_data = &$_SESSION;
@@ -161,8 +176,14 @@ class Kohana_Session_Native extends Session
      */
     private function _should_regenerate(): bool
     {
-        return !isset($_SESSION['_last_regenerate']) ||
-               ($this->_current_time() - $_SESSION['_last_regenerate']) > self::REGENERATION_INTERVAL;
+        // Минимальный интервал между регенерациями
+        $min_regeneration_interval = 300; // 5 минут
+
+        $last_regenerate = $_SESSION['_last_regenerate'] ?? 0;
+        $inactive_time = $this->_current_time() - ($_SESSION['_last_active'] ?? 0);
+
+        return $inactive_time > self::REGENERATION_INTERVAL && 
+               ($this->_current_time() - $last_regenerate) > $min_regeneration_interval;
     }
 
     /**
@@ -225,6 +246,53 @@ class Kohana_Session_Native extends Session
     private function _current_time(): int
     {
         return $this->_current_time ?? $this->_current_time = (new DateTime())->getTimestamp();
+    }
+
+    /**
+     * Serializes data based on the chosen format.
+     *
+     * @param mixed $data
+     * @return string
+     */
+    protected function _serialize($data): string
+    {
+        switch ($this->_serialization_format) {
+            case 'json':
+                return json_encode($data);
+            case 'serialize':
+                return serialize($data);
+            case 'msgpack':
+                return msgpack_pack($data);
+            default:
+                throw new RuntimeException('Unsupported serialization format.');
+        }
+    }
+
+    /**
+     * Deserializes data based on the chosen format.
+     *
+     * @param string $data
+     * @return mixed
+     */
+    protected function _deserialize(string $data)
+    {
+        if (empty($data)) {
+            return [];
+        }
+
+        switch ($this->_serialization_format) {
+            case 'json':
+                $result = json_decode($data, true);
+                return is_array($result) ? $result : [];
+            case 'serialize':
+                $result = unserialize($data);
+                return is_array($result) ? $result : [];
+            case 'msgpack':
+                $result = msgpack_unpack($data);
+                return is_array($result) ? $result : [];
+            default:
+                throw new RuntimeException('Unsupported serialization format.');
+        }
     }
 
     /**
