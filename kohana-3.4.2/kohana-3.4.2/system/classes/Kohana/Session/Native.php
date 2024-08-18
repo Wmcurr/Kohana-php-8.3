@@ -139,13 +139,20 @@ class Kohana_Session_Native extends Session
      */
 protected function _restart(): bool
 {
+    // Clean up the current session data
+    session_unset();
+    session_destroy();
+
     // Start a new session with enhanced security options
-    session_start([
-        'use_strict_mode' => true,
-        'sid_length' => 48,
-        'sid_bits_per_character' => 6,
-        'cache_limiter' => ''
-    ]);
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start([
+            'use_strict_mode' => true,
+            'sid_length' => 48,
+            'sid_bits_per_character' => 6,
+            'cache_limiter' => ''
+        ]);
+    }
+    
     $this->_data = &$_SESSION;
 
     // Initialize the new session with default parameters if it's a new session
@@ -157,7 +164,6 @@ protected function _restart(): bool
 
     return session_status() === PHP_SESSION_ACTIVE;
 }
-
     /**
      * Destroys the session.
      *
