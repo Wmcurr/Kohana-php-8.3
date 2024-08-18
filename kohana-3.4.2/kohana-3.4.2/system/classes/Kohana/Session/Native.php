@@ -137,17 +137,26 @@ class Kohana_Session_Native extends Session
      *
      * @return bool
      */
-    protected function _restart(): bool
-    {
-        session_start([
-            'use_strict_mode' => true,
-            'sid_length' => 48,
-            'sid_bits_per_character' => 6,
-            'cache_limiter' => ''
-        ]);
-        $this->_data = &$_SESSION;
-        return session_status() === PHP_SESSION_ACTIVE;
+protected function _restart(): bool
+{
+    // Start a new session with enhanced security options
+    session_start([
+        'use_strict_mode' => true,
+        'sid_length' => 48,
+        'sid_bits_per_character' => 6,
+        'cache_limiter' => ''
+    ]);
+    $this->_data = &$_SESSION;
+
+    // Initialize the new session with default parameters if it's a new session
+    if (!isset($_SESSION['_created'])) {
+        $_SESSION['_created'] = $this->_current_time();
+        $_SESSION['_last_regenerate'] = $this->_current_time();
+        $_SESSION['_fingerprint'] = $this->_generate_fingerprint();
     }
+
+    return session_status() === PHP_SESSION_ACTIVE;
+}
 
     /**
      * Destroys the session.
@@ -191,30 +200,32 @@ class Kohana_Session_Native extends Session
      *
      * @return bool
      */
-    private function _validate_session(): bool
-    {
-        if (!isset($_SESSION['_created'])) {
-            // Initialize new session
-            $_SESSION['_created'] = $this->_current_time();
-            $_SESSION['_last_regenerate'] = $this->_current_time();
-            $_SESSION['_fingerprint'] = $this->_generate_fingerprint();
-            return true;
-        }
-
-        // Check if the session has expired
-        if ($this->_current_time() - $_SESSION['_created'] > self::SESSION_LIFETIME) {
-            return false;
-        }
-
-        // Validate the session fingerprint
-        if ($_SESSION['_fingerprint'] !== $this->_generate_fingerprint()) {
-            return false;
-        }
-
-        // Update the session fingerprint
-        $this->_update_fingerprint();
+private function _validate_session(): bool
+{
+    if (!isset($_SESSION['_created'])) {
+        // Initialize new session
+        $_SESSION['_created'] = $this->_current_time();
+        $_SESSION['_last_regenerate'] = $this->_current_time();
+        $_SESSION['_fingerprint'] = $this->_generate_fingerprint();
         return true;
     }
+
+    // Check if the session has expired
+    if ($this->_current_time() - $_SESSION['_created'] > self::SESSION_LIFETIME) {
+        // If the session has expired, restart it
+        return $this->_restart();
+    }
+
+    // Validate the session fingerprint
+    if ($_SESSION['_fingerprint'] !== $this->_generate_fingerprint()) {
+        // If the fingerprint is invalid, restart the session
+        return $this->_restart();
+    }
+
+    // Update the session fingerprint
+    $this->_update_fingerprint();
+    return true;
+}
 
     /**
      * Generates a unique fingerprint for the session.
