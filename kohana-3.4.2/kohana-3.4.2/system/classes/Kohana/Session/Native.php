@@ -48,8 +48,9 @@ class Kohana_Session_Native extends Session
      * @param string|null $id
      * @return string|null
      */
-    protected function _read(?string $id = null): ?string
-    {
+protected function _read(?string $id = null): ?string
+{
+    try {
         // Set session cookie parameters
         session_set_cookie_params([
             'lifetime' => $this->_lifetime,
@@ -60,20 +61,40 @@ class Kohana_Session_Native extends Session
             'samesite' => 'Lax'
         ]);
 
+        // Set the session name
         session_name($this->_name);
 
+        // Set the session ID if provided
         if ($id !== null) {
             session_id($id);
         }
 
-        // Start the session with enhanced security options
-        if (!session_start([
+        // Attempt to start the session with enhanced security options
+        $sessionStarted = session_start([
             'use_strict_mode' => true,
             'sid_length' => 48,
             'sid_bits_per_character' => 6,
             'cache_limiter' => ''
-        ])) {
-            return null;
+        ]);
+
+        // Handle potential failure in starting the session
+        if (!$sessionStarted) {
+            // Log the error
+            Kohana::$log->add(Log::ERROR, 'Error starting session with strict mode enabled.');
+
+            // Try to recover by starting a new session with less strict settings
+            session_regenerate_id(true); // Regenerate the session ID for security
+            $sessionStarted = session_start([
+                'use_strict_mode' => false, // Disable strict mode as a fallback
+                'sid_length' => 32, // Use a standard session ID length
+                'sid_bits_per_character' => 4, // Use standard bit density
+                'cache_limiter' => 'nocache' // Default cache limiter to prevent caching issues
+            ]);
+
+            // If it still fails, throw an exception
+            if (!$sessionStarted) {
+                throw new Session_Exception('Error starting session after fallback attempt.');
+            }
         }
 
         // Reference the session data
@@ -88,7 +109,16 @@ class Kohana_Session_Native extends Session
         }
 
         return null;
+    } catch (Session_Exception $e) {
+        // Log specific session-related exceptions
+        Kohana::$log->add(Log::ERROR, 'Session read error: '.$e->getMessage());
+        return null;
+    } catch (Exception $e) {
+        // Log any other unexpected exceptions
+        Kohana::$log->add(Log::ERROR, 'Unexpected error: '.$e->getMessage());
+        return null;
     }
+}
 
     /**
      * Writes the session data to storage.
@@ -139,20 +169,13 @@ class Kohana_Session_Native extends Session
      */
 protected function _restart(): bool
 {
-    // Clean up the current session data
-    session_unset();
-    session_destroy();
-
     // Start a new session with enhanced security options
-    if (session_status() !== PHP_SESSION_ACTIVE) {
-        session_start([
-            'use_strict_mode' => true,
-            'sid_length' => 48,
-            'sid_bits_per_character' => 6,
-            'cache_limiter' => ''
-        ]);
-    }
-    
+    session_start([
+        'use_strict_mode' => true,
+        'sid_length' => 48,
+        'sid_bits_per_character' => 6,
+        'cache_limiter' => ''
+    ]);
     $this->_data = &$_SESSION;
 
     // Initialize the new session with default parameters if it's a new session
@@ -164,6 +187,7 @@ protected function _restart(): bool
 
     return session_status() === PHP_SESSION_ACTIVE;
 }
+
     /**
      * Destroys the session.
      *
