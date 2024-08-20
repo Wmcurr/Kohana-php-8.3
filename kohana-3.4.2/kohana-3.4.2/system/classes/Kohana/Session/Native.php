@@ -7,7 +7,7 @@ declare(strict_types=1);
  *
  * @package    Kohana
  * @category   Cookie
- * @modified   2024-08-13 - Added support for multiple serialization formats, adaptive regeneration, and asynchronous session saving.
+ * @modified   2024-08-20 - Added support for multiple serialization formats, adaptive regeneration, and asynchronous session saving.
  */
 class Kohana_Session_Native extends Session
 {
@@ -51,7 +51,14 @@ class Kohana_Session_Native extends Session
 protected function _read(?string $id = null): ?string
 {
     try {
-        // Set session cookie parameters
+        // Проверяем, активна ли уже сессия
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            // Если сессия активна, просто обновляем $this->_data и возвращаемся
+            $this->_data = &$_SESSION;
+            return null;
+        }
+
+        // Устанавливаем параметры cookie сессии
         session_set_cookie_params([
             'lifetime' => $this->_lifetime,
             'path' => Cookie::$path,
@@ -61,46 +68,31 @@ protected function _read(?string $id = null): ?string
             'samesite' => 'Lax'
         ]);
 
-        // Set the session name
         session_name($this->_name);
 
-        // Set the session ID if provided
         if ($id !== null) {
             session_id($id);
         }
 
-        // Attempt to start the session with enhanced security options
-        $sessionStarted = session_start([
+        // Проверяем, не была ли сессия закрыта ранее, и закрываем её, если это так
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+
+        // Запускаем сессию с улучшенными параметрами безопасности
+        if (!session_start([
             'use_strict_mode' => true,
             'sid_length' => 48,
             'sid_bits_per_character' => 6,
             'cache_limiter' => ''
-        ]);
-
-        // Handle potential failure in starting the session
-        if (!$sessionStarted) {
-            // Log the error
-            Kohana::$log->add(Log::ERROR, 'Error starting session with strict mode enabled.');
-
-            // Try to recover by starting a new session with less strict settings
-            session_regenerate_id(true); // Regenerate the session ID for security
-            $sessionStarted = session_start([
-                'use_strict_mode' => false, // Disable strict mode as a fallback
-                'sid_length' => 32, // Use a standard session ID length
-                'sid_bits_per_character' => 4, // Use standard bit density
-                'cache_limiter' => 'nocache' // Default cache limiter to prevent caching issues
-            ]);
-
-            // If it still fails, throw an exception
-            if (!$sessionStarted) {
-                throw new Session_Exception('Error starting session after fallback attempt.');
-            }
+        ])) {
+            throw new Session_Exception('Error starting session');
         }
 
-        // Reference the session data
+        // Ссылаемся на данные сессии
         $this->_data = &$_SESSION;
 
-        // Validate and possibly regenerate the session
+        // Проверяем и при необходимости регенерируем сессию
         if (!$this->_validate_session()) {
             $this->regenerate();
             $_SESSION = [];
@@ -109,16 +101,13 @@ protected function _read(?string $id = null): ?string
         }
 
         return null;
-    } catch (Session_Exception $e) {
-        // Log specific session-related exceptions
-        Kohana::$log->add(Log::ERROR, 'Session read error: '.$e->getMessage());
-        return null;
     } catch (Exception $e) {
-        // Log any other unexpected exceptions
-        Kohana::$log->add(Log::ERROR, 'Unexpected error: '.$e->getMessage());
+        // Логируем любые исключения или ошибки для отладки
+        Kohana::$log->add(Log::ERROR, 'Session read error: '.$e->getMessage());
         return null;
     }
 }
+
 
     /**
      * Writes the session data to storage.
@@ -169,24 +158,18 @@ protected function _read(?string $id = null): ?string
      */
 protected function _restart(): bool
 {
-    // Start a new session with enhanced security options
-    session_start([
-        'use_strict_mode' => true,
-        'sid_length' => 48,
-        'sid_bits_per_character' => 6,
-        'cache_limiter' => ''
-    ]);
-    $this->_data = &$_SESSION;
-
-    // Initialize the new session with default parameters if it's a new session
-    if (!isset($_SESSION['_created'])) {
-        $_SESSION['_created'] = $this->_current_time();
-        $_SESSION['_last_regenerate'] = $this->_current_time();
-        $_SESSION['_fingerprint'] = $this->_generate_fingerprint();
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start([
+            'use_strict_mode' => true,
+            'sid_length' => 48,
+            'sid_bits_per_character' => 6,
+            'cache_limiter' => ''
+        ]);
     }
-
+    $this->_data = &$_SESSION;
     return session_status() === PHP_SESSION_ACTIVE;
 }
+
 
     /**
      * Destroys the session.
