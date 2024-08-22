@@ -1,34 +1,32 @@
 <?php
+declare(strict_types=1);
 
 /**
  * File log writer. Writes out messages and stores them in a YYYY/MM directory.
  *
  * @package    Kohana
  * @category   Logging
- * @author     Kohana Team
- * @copyright  (c) 2008-2012 Kohana Team
- * @license    https://kohana.top/license
  */
 class Kohana_Log_File extends Log_Writer
 {
     /**
-     * @var  string  Directory to place log files in
+     * @var string Directory to place log files in
      */
-    protected $_directory;
+    protected string $_directory;
 
     /**
      * Creates a new file logger. Checks that the directory exists and
      * is writable.
      *
-     *     $writer = new Log_File($directory);
+     *     $writer = new Kohana_Log_File($directory);
      *
-     * @param   string  $directory  log directory
-     * @return  void
+     * @param string $directory log directory
+     * @throws RuntimeException If the directory does not exist or is not writable
      */
-    public function __construct($directory)
+    public function __construct(string $directory)
     {
-        if (!is_dir($directory) OR ! is_writable($directory)) {
-            throw new Kohana_Exception('Directory :dir must be writable', [':dir' => Debug::path($directory)]);
+        if (!is_dir($directory) || !is_writable($directory)) {
+            throw new RuntimeException(sprintf('Directory %s must be writable', Debug::path($directory)));
         }
 
         // Determine the directory path
@@ -42,20 +40,20 @@ class Kohana_Log_File extends Log_Writer
      *
      *     $writer->write($messages);
      *
-     * @param   array   $messages
-     * @return  void
+     * @param array $messages
+     * @return void
      */
-    public function write(array $messages)
+    public function write(array $messages): void
     {
         // Set the yearly directory name
         $directory = $this->_directory . date('Y');
 
         if (!is_dir($directory)) {
             // Create the yearly directory
-            mkdir($directory, 02777);
+            mkdir($directory, 02775, true);
 
             // Set permissions (must be manually set to fix umask issues)
-            chmod($directory, 02777);
+            chmod($directory, 02775);
         }
 
         // Add the month to the directory
@@ -63,21 +61,21 @@ class Kohana_Log_File extends Log_Writer
 
         if (!is_dir($directory)) {
             // Create the monthly directory
-            mkdir($directory, 02777);
+            mkdir($directory, 02775, true);
 
             // Set permissions (must be manually set to fix umask issues)
-            chmod($directory, 02777);
+            chmod($directory, 02775);
         }
 
         // Set the name of the log file
-        $filename = $directory . DIRECTORY_SEPARATOR . date('d') . EXT;
+        $filename = $directory . DIRECTORY_SEPARATOR . date('d') . '.log.php';
 
         if (!file_exists($filename)) {
             // Create the log file
             file_put_contents($filename, Kohana::FILE_SECURITY . ' ?>' . PHP_EOL);
 
             // Allow anyone to write to log files
-            chmod($filename, 0666);
+            chmod($filename, 0664);
         }
 
         foreach ($messages as $message) {
@@ -85,5 +83,4 @@ class Kohana_Log_File extends Log_Writer
             file_put_contents($filename, PHP_EOL . $this->format_message($message), FILE_APPEND);
         }
     }
-
 }
