@@ -53,8 +53,14 @@ protected function _read(?string $id = null): ?string
     try {
         // Проверяем, активна ли уже сессия
         if (session_status() === PHP_SESSION_ACTIVE) {
-            // Если сессия активна, просто обновляем $this->_data и возвращаемся
+            // Если сессия активна, просто обновляем $this->_data и проверяем отпечаток
             $this->_data = &$_SESSION;
+
+            // Убедитесь, что ключ "_fingerprint" инициализирован
+            if (!isset($_SESSION['_fingerprint'])) {
+                $_SESSION['_fingerprint'] = $this->_generate_fingerprint();
+            }
+
             return null;
         }
 
@@ -98,6 +104,11 @@ protected function _read(?string $id = null): ?string
             $_SESSION = [];
         } elseif ($this->_should_regenerate()) {
             $this->regenerate();
+        }
+
+        // Убедитесь, что ключ "_fingerprint" инициализирован
+        if (!isset($_SESSION['_fingerprint'])) {
+            $_SESSION['_fingerprint'] = $this->_generate_fingerprint();
         }
 
         return null;
@@ -230,7 +241,7 @@ private function _validate_session(): bool
     }
 
     // Validate the session fingerprint
-    if ($_SESSION['_fingerprint'] !== $this->_generate_fingerprint()) {
+    if (!isset($_SESSION['_fingerprint']) || $_SESSION['_fingerprint'] !== $this->_generate_fingerprint()) {
         // If the fingerprint is invalid, restart the session
         return $this->_restart();
     }
@@ -240,27 +251,35 @@ private function _validate_session(): bool
     return true;
 }
 
+
     /**
      * Generates a unique fingerprint for the session.
      *
      * @return string
      */
-    private function _generate_fingerprint(): string
-    {
-        return hash('sha256', 
-            $_SERVER['HTTP_USER_AGENT'] . 
-            (ip2long($_SERVER['REMOTE_ADDR']) & ip2long('255.255.0.0')) .
-            __DIR__
-        );
-    }
+protected function _generate_fingerprint(): string
+{
+    $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
+
+    return hash('sha256', 
+        $user_agent . 
+        (ip2long($_SERVER['REMOTE_ADDR']) & ip2long('255.255.0.0')) .
+        __DIR__
+    );
+}
 
     /**
      * Updates the session fingerprint.
      */
-    private function _update_fingerprint(): void
-    {
+private function _update_fingerprint(): void
+{
+    if (!isset($_SESSION['_fingerprint'])) {
+        $_SESSION['_fingerprint'] = $this->_generate_fingerprint();
+    } else {
         $_SESSION['_fingerprint'] = $this->_generate_fingerprint();
     }
+}
+
 
     /**
      * Returns the current time, used for session timing.
