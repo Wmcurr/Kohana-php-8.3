@@ -94,31 +94,37 @@ abstract class Kohana_Session
      * @return void
      * @uses Session::read
      */
-    public function __construct(array $config = null, ?string $id = null)
-    {
-        if (isset($config['name'])) {
-            // Cookie name to store the session id in
-            $this->_name = (string) $config['name'];
-        }
-
-        if (isset($config['lifetime'])) {
-            // Cookie lifetime
-            $this->_lifetime = (int) $config['lifetime'];
-        }
-
-        if (isset($config['encrypted'])) {
-            if ($config['encrypted'] === true) {
-                // Use the default Encrypt instance
-                $config['encrypted'] = 'default';
-            }
-
-            // Enable or disable encryption of data
-            $this->_encrypted = (bool) $config['encrypted'];
-        }
-
-        // Load the session
-        $this->read($id);
+public function __construct(array $config = null, ?string $id = null)
+{
+    if (isset($config['name'])) {
+        // Cookie name to store the session id in
+        $this->_name = (string) $config['name'];
     }
+
+    if (isset($config['lifetime'])) {
+        // Cookie lifetime
+        $this->_lifetime = (int) $config['lifetime'];
+    }
+
+    if (isset($config['encrypted'])) {
+        if ($config['encrypted'] === true) {
+            // Use the default Encrypt instance
+            $config['encrypted'] = 'default';
+        }
+
+        // Enable or disable encryption of data
+        $this->_encrypted = (bool) $config['encrypted'];
+    }
+
+    // Load the session
+    $this->read($id);
+
+    // Убедитесь, что ключ "_fingerprint" инициализирован
+    if (!isset($this->_data['_fingerprint'])) {
+        $this->_data['_fingerprint'] = $this->_generate_fingerprint();
+    }
+}
+
 
     /**
      * Session object is rendered to a serialized string. If encryption is
