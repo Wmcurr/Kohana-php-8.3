@@ -1,31 +1,28 @@
 <?php
+declare(strict_types=1);
 
 /**
  * Syslog log writer.
  *
  * @package    Kohana
  * @category   Logging
- * @author     Jeremy Bush
- * @copyright  (c) 2012 Kohana Team
- * @license    https://kohana.top/license
  */
-class Kohana_Log_Syslog extends Log_Writer
+class Kohana_Log_Syslog extends Kohana_Log_Writer
 {
     /**
-     * @var  string  The syslog identifier
+     * @var string The syslog identifier
      */
-    protected $_ident;
+    protected string $_ident;
 
     /**
      * Creates a new syslog logger.
      *
-     * @link    http://www.php.net/manual/function.openlog
+     * @link http://www.php.net/manual/function.openlog
      *
-     * @param   string  $ident      syslog identifier
-     * @param   int     $facility   facility to log to
-     * @return  void
+     * @param string $ident syslog identifier
+     * @param int $facility facility to log to
      */
-    public function __construct($ident = 'KohanaPHP', $facility = LOG_USER)
+    public function __construct(string $ident = 'KohanaPHP', int $facility = LOG_USER)
     {
         $this->_ident = $ident;
 
@@ -36,29 +33,28 @@ class Kohana_Log_Syslog extends Log_Writer
     /**
      * Writes each of the messages into the syslog.
      *
-     * @param   array   $messages
-     * @return  void
+     * @param array $messages
+     * @return void
      */
-    public function write(array $messages)
+    public function write(array $messages): void
     {
         foreach ($messages as $message) {
             syslog($message['level'], $message['body']);
 
             if (isset($message['additional']['exception'])) {
-                syslog(Log_Writer::$strace_level, $message['additional']['exception']->getTraceAsString());
+                syslog(static::$strace_level, $message['additional']['exception']->getTraceAsString());
             }
         }
     }
 
     /**
-     * Closes the syslog connection
+     * Closes the syslog connection.
      *
-     * @return  void
+     * @return void
      */
     public function __destruct()
     {
         // Close connection to syslog
         closelog();
     }
-
 }
