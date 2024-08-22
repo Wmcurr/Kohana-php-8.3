@@ -1,30 +1,25 @@
 <?php
+declare(strict_types=1);
 
 /**
  * STDOUT log writer. Writes out messages to STDOUT.
  *
  * @package    Kohana
  * @category   Logging
- * @author     Kohana Team
- * @copyright  (c) 2008-2014 Kohana Team
- * @license    https://kohana.top/license
  */
-class Kohana_Log_StdOut extends Log_Writer
+class Kohana_Log_StdOut extends Kohana_Log_Writer
 {
     /**
      * Writes each of the messages to STDOUT.
      *
-     *     $writer->write($messages);
-     *
-     * @param   array   $messages
-     * @return  void
+     * @param array $messages
+     * @return void
      */
-    public function write(array $messages)
+    public function write(array $messages): void
     {
         foreach ($messages as $message) {
-            // Writes out each message
+            // Writes out each message to STDOUT
             fwrite(STDOUT, $this->format_message($message) . PHP_EOL);
         }
     }
-
 }
