@@ -8,37 +8,37 @@
  * @package    Kohana
  * @category   Logging
  * @author     Kohana Team
- * @copyright  (c) 2008-2012 Kohana Team
+ * @copyright  (c) 2024 Kohana Team
  * @license    https://kohana.top/license
  */
+declare(strict_types=1);
+
 class Kohana_Log
 {
     // Log message levels - Windows users see PHP Bug #18090
-    const EMERGENCY = LOG_EMERG;    // 0
-    const ALERT = LOG_ALERT;    // 1
-    const CRITICAL = LOG_CRIT;     // 2
-    const ERROR = LOG_ERR;      // 3
-    const WARNING = LOG_WARNING;  // 4
-    const NOTICE = LOG_NOTICE;   // 5
-    const INFO = LOG_INFO;     // 6
-    const DEBUG = LOG_DEBUG;    // 7
+    public const EMERGENCY = LOG_EMERG;    // 0
+    public const ALERT = LOG_ALERT;        // 1
+    public const CRITICAL = LOG_CRIT;      // 2
+    public const ERROR = LOG_ERR;          // 3
+    public const WARNING = LOG_WARNING;    // 4
+    public const NOTICE = LOG_NOTICE;      // 5
+    public const INFO = LOG_INFO;          // 6
+    public const DEBUG = LOG_DEBUG;        // 7
 
     /**
-     * @var  boolean  immediately write when logs are added
+     * @var bool immediately write when logs are added
      */
-    public static $write_on_add = false;
+    public static bool $write_on_add = false;
 
     /**
-     * @var  Log  Singleton instance container
+     * @var self|null Singleton instance container
      */
-    protected static $_instance;
+    protected static ?self $_instance = null;
 
     /**
      * Get the singleton instance of this class and enable writing at shutdown.
      *
-     *     $log = Log::instance();
-     *
-     * @return  Log
+     * @return  self
      */
     public static function instance()
     {
@@ -54,33 +54,31 @@ class Kohana_Log
     }
 
     /**
-     * @var  array  list of added messages
+     * @var array list of added messages
      */
-    protected $_messages = [];
+    protected array $_messages = [];
 
     /**
-     * @var  array  list of log writers
+     * @var array list of log writers
      */
-    protected $_writers = [];
+    protected array $_writers = [];
 
     /**
      * Attaches a log writer, and optionally limits the levels of messages that
      * will be written by the writer.
      *
-     *     $log->attach($writer);
-     *
      * @param   Log_Writer  $writer     instance
-     * @param   mixed       $levels     array of messages levels to write OR max level to write
-     * @param   integer     $min_level  min level to write IF $levels is not an array
-     * @return  Log
+     * @param   array|int   $levels     array of messages levels to write OR max level to write
+     * @param   int         $min_level  min level to write IF $levels is not an array
+     * @return  self
      */
-    public function attach(Log_Writer $writer, $levels = [], $min_level = 0)
+    public function attach(Log_Writer $writer, array|int $levels = [], int $min_level = 0): self
     {
         if (!is_array($levels)) {
             $levels = range($min_level, $levels);
         }
 
-        $this->_writers["{$writer}"] = [
+        $this->_writers[spl_object_hash($writer)] = [
             'object' => $writer,
             'levels' => $levels
         ];
@@ -91,15 +89,13 @@ class Kohana_Log
     /**
      * Detaches a log writer. The same writer object must be used.
      *
-     *     $log->detach($writer);
-     *
      * @param   Log_Writer  $writer instance
-     * @return  Log
+     * @return  self
      */
-    public function detach(Log_Writer $writer)
+    public function detach(Log_Writer $writer): self
     {
         // Remove the writer
-        unset($this->_writers["{$writer}"]);
+        unset($this->_writers[spl_object_hash($writer)]);
 
         return $this;
     }
@@ -108,17 +104,13 @@ class Kohana_Log
      * Adds a message to the log. Replacement values must be passed in to be
      * replaced using [strtr](http://php.net/strtr).
      *
-     *     $log->add(Log::ERROR, 'Could not locate user: :user', [
-     *         ':user' => $username,
-     *     ]);
-     *
      * @param   string  $level       level of message
      * @param   string  $message     message body
-     * @param   array   $values      values to replace in the message
-     * @param   array   $additional  additional custom parameters to supply to the log writer
-     * @return  Log
+     * @param   array|null   $values      values to replace in the message
+     * @param   array|null   $additional  additional custom parameters to supply to the log writer
+     * @return  self
      */
-    public function add($level, $message, array $values = null, array $additional = null)
+	 public function add(int|string $level, string $message, ?array $values = null, ?array $additional = null): self
     {
         if ($values) {
             // Insert the values into the message
@@ -140,24 +132,19 @@ class Kohana_Log
             }
         }
 
-        if ($additional == null) {
-            $additional = [];
-        }
-
-        // Create a new message
         $this->_messages[] = [
             'time' => (new DateTime())->getTimestamp(),
             'level' => $level,
             'body' => $message,
             'trace' => $trace,
-            'file' => isset($trace[0]['file']) ? $trace[0]['file'] : null,
-            'line' => isset($trace[0]['line']) ? $trace[0]['line'] : null,
-            'class' => isset($trace[0]['class']) ? $trace[0]['class'] : null,
-            'function' => isset($trace[0]['function']) ? $trace[0]['function'] : null,
-            'additional' => $additional,
+            'file' => $trace[0]['file'] ?? null,
+            'line' => $trace[0]['line'] ?? null,
+            'class' => $trace[0]['class'] ?? null,
+            'function' => $trace[0]['function'] ?? null,
+            'additional' => $additional ?? [],
         ];
 
-        if (Log::$write_on_add) {
+        if (self::$write_on_add) {
             // Write logs as they are added
             $this->write();
         }
@@ -168,11 +155,9 @@ class Kohana_Log
     /**
      * Write and clear all of the messages.
      *
-     *     $log->write();
-     *
      * @return  void
      */
-    public function write()
+    public function write(): void
     {
         if (empty($this->_messages)) {
             // There is nothing to write, move along
@@ -191,19 +176,11 @@ class Kohana_Log
                 $writer['object']->write($messages);
             } else {
                 // Filtered messages
-                $filtered = [];
-
-                foreach ($messages as $message) {
-                    if (in_array($message['level'], $writer['levels'])) {
-                        // Writer accepts this kind of message
-                        $filtered[] = $message;
-                    }
-                }
+                $filtered = array_filter($messages, fn($message) => in_array($message['level'], $writer['levels']));
 
                 // Write the filtered messages
                 $writer['object']->write($filtered);
             }
         }
     }
-
 }
