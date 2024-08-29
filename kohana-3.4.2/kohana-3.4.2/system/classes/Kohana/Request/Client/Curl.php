@@ -70,7 +70,7 @@ class Kohana_Request_Client_Curl extends Request_Client_External
         $uri = $request->uri();
 
         if ($query = $request->query()) {
-            $uri .= '?' . http_build_query($query, null, '&');
+        $uri .= '?' . http_build_query($query, '', '&');
         }
 
         // Open a new remote connection
