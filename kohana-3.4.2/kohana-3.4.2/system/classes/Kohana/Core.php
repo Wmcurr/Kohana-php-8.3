@@ -653,64 +653,96 @@ class Kohana_Core
         return self::$_paths;
     }
 
-    public static function find_file(string $dir, string $file, ?string $ext = null, bool $array = false): array|string
-    {
-        if ($ext === null) {
-            $ext = EXT;
-        } elseif ($ext) {
-            $ext = ".{$ext}";
-        } else {
-            $ext = '';
-        }
-
-        $path = $dir . DIRECTORY_SEPARATOR . $file . $ext;
-
-        if (self::$caching && isset(self::$_files[$path . ($array ? '_array' : '_path')])) {
-            return self::$_files[$path . ($array ? '_array' : '_path')];
-        }
-
-        if (self::$profiling && class_exists('Profiler', false)) {
-            $benchmark = Profiler::start('Kohana', __FUNCTION__);
-        }
-
-        $found = $array ? [] : false;
-
-        if ($array || $dir === 'config' || $dir === 'i18n' || $dir === 'messages') {
-            $paths = array_reverse(self::$_paths);
-
-            foreach ($paths as $dir) {
-                if (is_file($dir . $path)) {
-                    if ($array) {
-                        $found[] = $dir . $path;
-                    } else {
-                        $found = $dir . $path;
-                    }
-                }
+public static function find_file(string $dir, string $file, ?string $ext = null, bool $array = false): array|string
+{
+    $ext = $ext !== null ? ".{$ext}" : EXT;
+    $path = $dir . DIRECTORY_SEPARATOR . $file . $ext;
+    
+    // Проверка кеша
+    if (self::$caching && isset(self::$_files[$path . ($array ? '_array' : '_path')])) {
+        return self::$_files[$path . ($array ? '_array' : '_path')];
+    }
+    
+    $found = $array ? [] : false;
+    
+    // Загрузка карты классов
+    $class_map_file = self::$cache_dir . DIRECTORY_SEPARATOR . 'class_map.php';
+    $class_map = [];
+    if (file_exists($class_map_file)) {
+        $class_map = include $class_map_file;
+    }
+    
+    // Прямой поиск в карте классов для 'classes'
+    if ($dir === 'classes') {
+        $class_name = str_replace('/', '\\', $file);
+        if (isset($class_map[$class_name])) {
+            $found = $class_map[$class_name];
+            if ($array) {
+                $found = [$found];
             }
-        } else {
-            foreach (self::$_paths as $dir) {
-                if (is_file($dir . $path)) {
-                    $found = $dir . $path;
+            
+            // Сохраняем в кеш
+            if (self::$caching) {
+                self::$_files[$path . ($array ? '_array' : '_path')] = $found;
+                self::$_files_changed = true;
+            }
+            
+            return $found;
+        }
+    }
+    
+    // Поиск по всем директориям в карте классов
+    if (!empty($class_map) && is_array($class_map)) {
+        foreach ($class_map as $class_name => $class_path) {
+            if (!is_string($class_path)) {
+                continue; // Пропускаем некорректные записи
+            }
+            $class_dir = dirname($class_path);
+            $full_path = $class_dir . DIRECTORY_SEPARATOR . $path;
+            
+            if (is_file($full_path)) {
+                if ($array) {
+                    $found[] = $full_path;
+                } else {
+                    $found = $full_path;
                     break;
                 }
             }
         }
-
-        if ($found === false) {
-            return $array ? [] : '';
-        }
-
-        if (self::$caching) {
-            self::$_files[$path . ($array ? '_array' : '_path')] = $found;
-            self::$_files_changed = true;
-        }
-
-        if (isset($benchmark)) {
-            Profiler::stop($benchmark);
-        }
-
-        return $found;
     }
+    
+    // Если класс не найден в карте или ищем не класс, используем стандартный поиск
+    if ($array ? empty($found) : !$found) {
+        $paths = $array ? array_reverse(self::$_paths) : self::$_paths;
+        foreach ($paths as $directory) {
+            if (!is_string($directory)) {
+                continue; // Пропускаем некорректные записи
+            }
+            $full_path = $directory . DIRECTORY_SEPARATOR . $path;
+            if (is_file($full_path)) {
+                if ($array) {
+                    $found[] = $full_path;
+                } else {
+                    $found = $full_path;
+                    break;
+                }
+            }
+        }
+    }
+    
+    // Если файл не найден
+    if ($array ? empty($found) : !$found) {
+        return $array ? [] : '';
+    }
+    
+    // Сохраняем в кеш
+    if (self::$caching) {
+        self::$_files[$path . ($array ? '_array' : '_path')] = $found;
+        self::$_files_changed = true;
+    }
+    
+    return $found;
+}
 
     public static function list_files(?string $directory = null, ?array $paths = null): array
     {
@@ -861,32 +893,104 @@ class Kohana_Core
         return 'Kohana Framework ' . self::VERSION;
     }
 
-    protected static function build_class_map(): void
-    {
-        $class_map = [];
+protected static function build_class_map(): void
+{
+    $class_map = [];
+    $file_hash = [];
+    foreach (self::$_paths as $path) {
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($path, RecursiveDirectoryIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::LEAVES_ONLY
+        );
+        foreach ($iterator as $file) {
+            if ($file->isFile() && in_array($file->getExtension(), ['php', 'inc'])) {
+                $file_path = $file->getPathname();
+                $relative_path = substr($file_path, strlen($path));
+                $file_content = file_get_contents($file_path);
+                $tokens = token_get_all($file_content);
 
-        foreach (self::$_paths as $path) {
-            $iterator = new RecursiveIteratorIterator(
-                new RecursiveDirectoryIterator($path, RecursiveDirectoryIterator::SKIP_DOTS),
-                RecursiveIteratorIterator::SELF_FIRST
-            );
+                $namespace = '';
+                $classes = [];
+                $state = null; // Возможные состояния: 'namespace', 'class', null
+                $buffer = '';
 
-            foreach ($iterator as $file) {
-                if ($file->isFile() && $file->getExtension() === 'php') {
-                    $relative_path = substr($file->getPathname(), strlen($path));
-                    $class = str_replace(
-                        [DIRECTORY_SEPARATOR, '.php'],
-                        ['_', ''],
-                        $relative_path
-                    );
-                    $class_map[$class] = $file->getPathname();
+                foreach ($tokens as $token) {
+                    if (is_array($token)) {
+                        $token_type = $token[0];
+                        $token_value = $token[1];
+
+                        if ($token_type === T_NAMESPACE) {
+                            $namespace = '';
+                            $state = 'namespace';
+                            continue;
+                        }
+
+                        if ($state === 'namespace') {
+                            if (in_array($token_type, [T_STRING, T_NS_SEPARATOR])) {
+                                $namespace .= $token_value;
+                            } elseif ($token_type === T_WHITESPACE) {
+                                continue;
+                            } else {
+                                $state = null;
+                            }
+                            continue;
+                        }
+
+                        if (in_array($token_type, [T_CLASS, T_INTERFACE, T_TRAIT, T_ENUM])) {
+                            // Проверяем, что это не анонимный класс
+                            $is_anonymous = false;
+                            if ($token_type === T_CLASS) {
+                                $prev_token = $tokens[key($tokens) - 1] ?? null;
+                                if (is_array($prev_token) && $prev_token[0] === T_NEW) {
+                                    $is_anonymous = true;
+                                }
+                            }
+                            if (!$is_anonymous) {
+                                $state = 'class';
+                                continue;
+                            }
+                        }
+
+                        if ($state === 'class' && $token_type === T_STRING) {
+                            $class_name = $token_value;
+                            $full_class_name = $namespace ? $namespace . '\\' . $class_name : $class_name;
+                            $classes[] = $full_class_name;
+                            $class_map[$full_class_name] = $file_path;
+                            $state = null;
+                            continue;
+                        }
+                    } else {
+                        // Сбрасываем состояние при встрече точки с запятой или открывающей фигурной скобки
+                        if ($token === ';' || $token === '{') {
+                            $state = null;
+                        }
+                    }
                 }
+
+                // Если классы не найдены, создаем имя класса на основе пути к файлу
+                if (empty($classes)) {
+                    $file_based_class = str_replace(['/', '\\'], '_', substr($relative_path, 0, -4));
+                    $full_name = $namespace ? $namespace . '\\' . $file_based_class : $file_based_class;
+                    $class_map[$full_name] = $file_path;
+                }
+
+                $file_hash[$file_path] = md5_file($file_path);
             }
         }
+    }
 
+    $hash_file = self::$cache_dir . DIRECTORY_SEPARATOR . 'class_map_hash.php';
+    if (file_exists($hash_file)) {
+        $prev_hash = include $hash_file;
+    } else {
+        $prev_hash = [];
+    }
+    if ($prev_hash !== $file_hash) {
         $class_map_file = self::$cache_dir . DIRECTORY_SEPARATOR . 'class_map.php';
         file_put_contents($class_map_file, '<?php return ' . var_export($class_map, true) . ';');
+        file_put_contents($hash_file, '<?php return ' . var_export($file_hash, true) . ';');
     }
+}
 
     protected static function process_file(string $file): ?string
     {
