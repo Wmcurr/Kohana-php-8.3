@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Contains the most low-level helpers methods in Kohana:
+ * Contains the most low-level helper methods in Kohana:
  *
  * - Environment initialization
  * - Locating files within the cascading filesystem
@@ -72,15 +72,18 @@ abstract class Kohana_HTTP
         $response->headers('etag', $etag);
 
         // Add the Cache-Control header if it is not already set
-        // This allows etags to be used with max-age, etc
         if ($response->headers('cache-control')) {
-            $response->headers('cache-control', $response->headers('cache-control') . ', must-revalidate');
+            $cacheControl = $response->headers('cache-control');
+            if (stripos($cacheControl, 'must-revalidate') === false) {
+                $response->headers('cache-control', $cacheControl . ', must-revalidate');
+            }
         } else {
             $response->headers('cache-control', 'must-revalidate');
         }
 
         // Check if we have a matching etag
-        if ($request->headers('if-none-match') && (string) $request->headers('if-none-match') === $etag) {
+        $ifNoneMatch = $request->headers('if-none-match');
+        if ($ifNoneMatch && str_contains((string)$ifNoneMatch, $etag)) {
             // No need to send data again
             throw HTTP_Exception::factory(304)->headers('etag', $etag);
         }
@@ -89,95 +92,72 @@ abstract class Kohana_HTTP
     }
 
     /**
-     * Parses a HTTP header string into an associative array
+     * Parses a HTTP header string into an associative array.
      *
      * @param string $header_string Header string to parse
      * @return HTTP_Header
      */
     public static function parse_header_string(string $header_string): HTTP_Header
     {
-        // If the PECL HTTP extension is loaded
+        // Use PECL HTTP extension if available for better performance
         if (extension_loaded('http')) {
-            // Use the fast method to parse header string
             $headers = version_compare(phpversion('http'), '2.0.0', '>=') ?
                 \http\Header::parse($header_string) :
                 http_parse_headers($header_string);
             return new HTTP_Header($headers);
         }
 
-        // Otherwise we use the slower PHP parsing
+        // Otherwise, use regular expressions for manual parsing
         $headers = [];
-
-        // Match all HTTP headers
         if (preg_match_all('/(\w[^\s:]*):[ ]*([^\r\n]*(?:\r\n[ \t][^\r\n]*)*)/', $header_string, $matches)) {
-            // Parse each matched header
-            foreach ($matches[0] as $key => $value) {
-                // If the header has not already been set
-                if (!isset($headers[$matches[1][$key]])) {
-                    // Apply the header directly
-                    $headers[$matches[1][$key]] = $matches[2][$key];
+            foreach ($matches[1] as $key => $header) {
+                $headerName = strtolower($header);
+                $headerValue = trim($matches[2][$key]);
+
+                // If header exists, convert to an array of values
+                if (!isset($headers[$headerName])) {
+                    $headers[$headerName] = $headerValue;
                 } else {
-                    // Otherwise there is an existing entry
-                    if (is_array($headers[$matches[1][$key]])) {
-                        // Apply the new entry to the array
-                        $headers[$matches[1][$key]][] = $matches[2][$key];
+                    if (is_array($headers[$headerName])) {
+                        $headers[$headerName][] = $headerValue;
                     } else {
-                        // Otherwise create a new array with the entries
-                        $headers[$matches[1][$key]] = [
-                            $headers[$matches[1][$key]],
-                            $matches[2][$key],
-                        ];
+                        $headers[$headerName] = [$headers[$headerName], $headerValue];
                     }
                 }
             }
         }
 
-        // Return the headers
         return new HTTP_Header($headers);
     }
 
     /**
      * Parses the HTTP request headers and returns an array containing
-     * key-value pairs. This method is slow, but provides an accurate
-     * representation of the HTTP request.
+     * key-value pairs.
      *
      * @return HTTP_Header
      */
     public static function request_headers(): HTTP_Header
     {
-        // If running on apache server
-        if (function_exists('apache_request_headers')) {
-            // Return the much faster method
-            return new HTTP_Header(apache_request_headers());
+        // Use PECL HTTP or Apache request headers if available
+        if (function_exists('getallheaders')) {
+            return new HTTP_Header(getallheaders());
         } elseif (extension_loaded('http')) {
-            // Return the much faster method
             $headers = version_compare(phpversion('http'), '2.0.0', '>=') ?
                 \http\Env::getRequestHeader() :
                 http_get_request_headers();
             return new HTTP_Header($headers);
         }
 
-        // Setup the output
+        // Otherwise, manually parse headers from $_SERVER
         $headers = [];
-
-        // Parse the content type
-        if (!empty($_SERVER['CONTENT_TYPE'])) {
-            $headers['content-type'] = $_SERVER['CONTENT_TYPE'];
-        }
-
-        // Parse the content length
-        if (!empty($_SERVER['CONTENT_LENGTH'])) {
-            $headers['content-length'] = $_SERVER['CONTENT_LENGTH'];
-        }
-
         foreach ($_SERVER as $key => $value) {
-            // If there is no HTTP header here, skip
-            if (strpos($key, 'HTTP_') !== 0) {
-                continue;
+            if (stripos($key, 'HTTP_') === 0) {
+                $header = str_replace('_', '-', substr($key, 5));
+                $headers[$header] = $value;
+            } elseif (in_array($key, ['CONTENT_TYPE', 'CONTENT_LENGTH', 'CONTENT_MD5'], true)) {
+                $header = str_replace('_', '-', $key);
+                $headers[$header] = $value;
             }
-
-            // This is a dirty hack to ensure HTTP_X_FOO_BAR becomes X-FOO-BAR
-            $headers[str_replace('_', '-', substr($key, 5))] = $value;
         }
 
         return new HTTP_Header($headers);
@@ -185,24 +165,15 @@ abstract class Kohana_HTTP
 
     /**
      * Processes an array of key value pairs and encodes
-     * the values to meet RFC 3986
+     * the values to meet RFC 3986.
      *
      * @param array $params Params
      * @return string
      */
     public static function www_form_urlencode(array $params = []): string
     {
-        if (empty($params)) {
-            return '';
-        }
-
-        $encoded = [];
-
-        foreach ($params as $key => $value) {
-            $encoded[] = $key . '=' . rawurlencode($value);
-        }
-
-        return implode('&', $encoded);
+        // Use built-in function for consistency with RFC 3986
+        return http_build_query($params, '', '&', PHP_QUERY_RFC3986);
     }
 
     /**
@@ -213,9 +184,16 @@ abstract class Kohana_HTTP
     public static function get_protocol(): string
     {
         $protocol = $_SERVER['SERVER_PROTOCOL'] ?? self::$protocol;
+        $protocol = strtoupper($protocol);
+
+        // Sanitize protocol to strip minor versions
+        $protocolVersion = preg_replace('/(\.\d+)?$/', '', substr($protocol, 5));
+        $protocol = 'HTTP/' . $protocolVersion;
+
         if (in_array($protocol, self::$supportedProtocols, true)) {
             return $protocol;
         }
+
         return self::$protocol;
     }
 }
