@@ -181,19 +181,16 @@ abstract class Kohana_HTTP
      *
      * @return string
      */
-    public static function get_protocol(): string
-    {
-        $protocol = $_SERVER['SERVER_PROTOCOL'] ?? self::$protocol;
-        $protocol = strtoupper($protocol);
-
-        // Sanitize protocol to strip minor versions
-        $protocolVersion = preg_replace('/(\.\d+)?$/', '', substr($protocol, 5));
-        $protocol = 'HTTP/' . $protocolVersion;
-
-        if (in_array($protocol, self::$supportedProtocols, true)) {
-            return $protocol;
-        }
-
-        return self::$protocol;
+public static function get_protocol(): string
+{
+    $protocol = $_SERVER['SERVER_PROTOCOL'] ?? self::$protocol;
+    $protocol = strtoupper($protocol);
+    
+    if (in_array($protocol, self::$supportedProtocols, true)) {
+        return $protocol;
     }
+
+    return self::$protocol;
+}
+
 }
