@@ -214,7 +214,7 @@ class Kohana_Core
         } elseif (!isset($this->prefixDirsPsr4[$prefix])) {
             $length = strlen($prefix);
             if ('\\' !== $prefix[$length - 1]) {
-                throw new \InvalidArgumentException("A non-empty PSR-4 prefix must end with a namespace separator.");
+                throw new \InvalidArgumentException("A non-empty PSR-4 prefix must end with a Hamespace ceparator.");
             }
             $this->prefixLengthsPsr4[$prefix[0]][$prefix] = $length;
             $this->prefixDirsPsr4[$prefix] = $paths;
@@ -897,84 +897,134 @@ protected static function build_class_map(): void
 {
     $class_map = [];
     $file_hash = [];
+
+    // Список расширений файлов, настраиваемый
+    $allowed_extensions = ['php', 'inc'];
+
     foreach (self::$_paths as $path) {
         $iterator = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator($path, RecursiveDirectoryIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::LEAVES_ONLY
+            RecursiveIteratorIterator::SELF_FIRST
         );
+
         foreach ($iterator as $file) {
-            if ($file->isFile() && in_array($file->getExtension(), ['php', 'inc'])) {
-                $file_path = $file->getPathname();
-                $relative_path = substr($file_path, strlen($path));
-                $file_content = file_get_contents($file_path);
-                $tokens = token_get_all($file_content);
+            if ($file->isFile() && in_array($file->getExtension(), $allowed_extensions)) {
+                try {
+                    $file_path = $file->getPathname();
+                    $file_content = file_get_contents($file_path);
+                } catch (Exception $e) {
+                    // Обработка ошибок при чтении файла
+                    error_log("Ошибка при чтении файла: " . $file_path . ". Сообщение: " . $e->getMessage());
+                    continue;
+                }
 
                 $namespace = '';
                 $classes = [];
-                $state = null; // Возможные состояния: 'namespace', 'class', null
-                $buffer = '';
+                $tokens = token_get_all($file_content);
+                $count = count($tokens);
+                $i = 0;
 
-                foreach ($tokens as $token) {
+                $is_conditional_declaration = false; // Для обработки условных объявлений классов
+                $is_grouped_namespace = false;      // Для обработки пространств имен с фигурными скобками
+
+                while ($i < $count) {
+                    $token = $tokens[$i];
+
                     if (is_array($token)) {
-                        $token_type = $token[0];
-                        $token_value = $token[1];
-
-                        if ($token_type === T_NAMESPACE) {
+                        // Обнаружение пространства имен
+                        if ($token[0] === T_NAMESPACE) {
                             $namespace = '';
-                            $state = 'namespace';
-                            continue;
-                        }
+                            $i++;
+                            // Собираем пространство имен или групповые пространства имен
+                            while (isset($tokens[$i]) && (is_array($tokens[$i]) && in_array($tokens[$i][0], [T_STRING, T_NS_SEPARATOR], true))) {
+                                $namespace .= $tokens[$i][1];
+                                $i++;
+                            }
 
-                        if ($state === 'namespace') {
-                            if (in_array($token_type, [T_STRING, T_NS_SEPARATOR])) {
-                                $namespace .= $token_value;
-                            } elseif ($token_type === T_WHITESPACE) {
+                            // Проверяем, используются ли групповые пространства имен
+                            if (isset($tokens[$i]) && $tokens[$i] === '{') {
+                                $is_grouped_namespace = true;
+                                $i++;
                                 continue;
                             } else {
-                                $state = null;
+                                $namespace = $namespace ? $namespace . '\\' : '';
+                                $is_grouped_namespace = false;
                             }
                             continue;
                         }
 
-                        if (in_array($token_type, [T_CLASS, T_INTERFACE, T_TRAIT, T_ENUM])) {
-                            // Проверяем, что это не анонимный класс
-                            $is_anonymous = false;
-                            if ($token_type === T_CLASS) {
-                                $prev_token = $tokens[key($tokens) - 1] ?? null;
-                                if (is_array($prev_token) && $prev_token[0] === T_NEW) {
-                                    $is_anonymous = true;
-                                }
+                        // Обработка групповых use-выражений
+                        if ($token[0] === T_USE) {
+                            $i++;
+                            while (isset($tokens[$i]) && $tokens[$i] !== ';') {
+                                $i++;
                             }
-                            if (!$is_anonymous) {
-                                $state = 'class';
+                            continue;
+                        }
+
+                        // Обнаружение условного объявления класса
+                        if ($token[0] === T_IF || $token[0] === T_ELSEIF || $token[0] === T_ELSE) {
+                            $is_conditional_declaration = true;
+                        }
+
+                        // Обнаружение объявления класса, интерфейса, трейта или перечисления
+                        if (in_array($token[0], [T_CLASS, T_INTERFACE, T_TRAIT, T_ENUM], true)) {
+                            if ($is_conditional_declaration) {
+                                $is_conditional_declaration = false;
+                                continue; // Пропускаем классы, объявленные внутри условий
+                            }
+
+                            // Проверка на анонимные классы
+                            if (isset($tokens[$i + 2]) && $tokens[$i + 2] === '(') {
+                                continue; // Пропускаем анонимные классы
+                            }
+
+                            // Проверка на использование T_CLASS в контексте :: (например, ClassName::method())
+                            if ($i > 0 && is_array($tokens[$i - 1]) && $tokens[$i - 1][0] === T_PAAMAYIM_NEKUDOTAYIM) {
+                                $i++;
                                 continue;
                             }
-                        }
 
-                        if ($state === 'class' && $token_type === T_STRING) {
-                            $class_name = $token_value;
-                            $full_class_name = $namespace ? $namespace . '\\' . $class_name : $class_name;
-                            $classes[] = $full_class_name;
-                            $class_map[$full_class_name] = $file_path;
-                            $state = null;
-                            continue;
+                            $i++;
+                            while (isset($tokens[$i]) && is_array($tokens[$i]) && $tokens[$i][0] === T_WHITESPACE) {
+                                $i++;
+                            }
+                            if (isset($tokens[$i]) && is_array($tokens[$i]) && $tokens[$i][0] === T_STRING) {
+                                $class_name = $tokens[$i][1];
+                                // Если используются групповые пространства имен
+                                if ($is_grouped_namespace) {
+                                    $grouped_namespace = $namespace;
+                                    while (isset($tokens[$i]) && $tokens[$i] !== ';') {
+                                        if (is_array($tokens[$i]) && $tokens[$i][0] === T_STRING) {
+                                            $full_name = $grouped_namespace . '\\' . $tokens[$i][1];
+                                            $classes[] = $full_name;
+                                        }
+                                        $i++;
+                                    }
+                                } else {
+                                    $full_name = $namespace . $class_name;
+                                    $classes[] = $full_name;
+                                }
+                            }
                         }
-                    } else {
-                        // Сбрасываем состояние при встрече точки с запятой или открывающей фигурной скобки
-                        if ($token === ';' || $token === '{') {
-                            $state = null;
-                        }
+                    }
+
+                    $i++;
+                }
+
+                if (!empty($classes)) {
+                    foreach ($classes as $full_name) {
+                        $class_map[$full_name] = $file_path;
                     }
                 }
 
-                // Если классы не найдены, создаем имя класса на основе пути к файлу
-                if (empty($classes)) {
-                    $file_based_class = str_replace(['/', '\\'], '_', substr($relative_path, 0, -4));
-                    $full_name = $namespace ? $namespace . '\\' . $file_based_class : $file_based_class;
-                    $class_map[$full_name] = $file_path;
+                try {
+                    // Хеширование файла для отслеживания изменений
+                    $file_hash[$file_path] = md5_file($file_path);
+                } catch (Exception $e) {
+                    // Обработка ошибок при хешировании файла
+                    error_log("Ошибка при хешировании файла: " . $file_path . ". Сообщение: " . $e->getMessage());
                 }
-
-                $file_hash[$file_path] = md5_file($file_path);
             }
         }
     }
@@ -985,12 +1035,19 @@ protected static function build_class_map(): void
     } else {
         $prev_hash = [];
     }
+
     if ($prev_hash !== $file_hash) {
         $class_map_file = self::$cache_dir . DIRECTORY_SEPARATOR . 'class_map.php';
-        file_put_contents($class_map_file, '<?php return ' . var_export($class_map, true) . ';');
-        file_put_contents($hash_file, '<?php return ' . var_export($file_hash, true) . ';');
+        try {
+            file_put_contents($class_map_file, '<?php return ' . var_export($class_map, true) . ';');
+            file_put_contents($hash_file, '<?php return ' . var_export($file_hash, true) . ';');
+        } catch (Exception $e) {
+            // Обработка ошибок при записи файла кэша
+            error_log("Ошибка при записи файла кэша: " . $e->getMessage());
+        }
     }
 }
+
 
     protected static function process_file(string $file): ?string
     {
