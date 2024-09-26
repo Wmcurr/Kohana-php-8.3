@@ -561,11 +561,28 @@ class Kohana_Core
         return $value;
     }
 
-    public static function auto_load(string $class, string $directory = 'classes'): bool
+public static function auto_load(string $class): bool
 {
-    // Массив путей для поиска классов
-    $paths = [APPPATH, SYSPATH];
+    // Загружаем карту классов при первом вызове
+    static $class_map = null;
+    if ($class_map === null) {
+        $class_map_file = self::$cache_dir . DIRECTORY_SEPARATOR . 'class_map.php';
+        if (file_exists($class_map_file)) {
+            $class_map = include $class_map_file;
+        } else {
+            $class_map = [];
+        }
+    }
 
+    // Проверяем, есть ли класс в карте
+    if (isset($class_map[$class])) {
+        require $class_map[$class];
+        return true;
+    }
+
+    // Если класс не найден в карте, используем существующую логику PSR-4 и PSR-0
+    $paths = [APPPATH, SYSPATH];
+    
     // PSR-4 autoloading
     foreach ($paths as $base_path) {
         $psr4_file = $base_path . str_replace('\\', DIRECTORY_SEPARATOR, $class) . '.php';
@@ -574,27 +591,25 @@ class Kohana_Core
             return true;
         }
     }
-
+    
     // PSR-0 autoloading
     $class = ltrim($class, '\\');
     $file = '';
     $namespace = '';
-
-    if ($last_namespace_position = strripos($class, '\\')) {
+    if ($last_namespace_position = strrpos($class, '\\')) {
         $namespace = substr($class, 0, $last_namespace_position);
         $class = substr($class, $last_namespace_position + 1);
         $file = str_replace('\\', DIRECTORY_SEPARATOR, $namespace) . DIRECTORY_SEPARATOR;
     }
-
     $file .= str_replace('_', DIRECTORY_SEPARATOR, $class);
-
+    
     foreach ($paths as $base_path) {
-        if ($path = self::find_file($directory, $file)) {
+        if ($path = self::find_file('classes', $file)) {
             require $path;
             return true;
         }
     }
-
+    
     return false;
 }
 
@@ -653,96 +668,64 @@ class Kohana_Core
         return self::$_paths;
     }
 
-public static function find_file(string $dir, string $file, ?string $ext = null, bool $array = false): array|string
-{
-    $ext = $ext !== null ? ".{$ext}" : EXT;
-    $path = $dir . DIRECTORY_SEPARATOR . $file . $ext;
-    
-    // Проверка кеша
-    if (self::$caching && isset(self::$_files[$path . ($array ? '_array' : '_path')])) {
-        return self::$_files[$path . ($array ? '_array' : '_path')];
-    }
-    
-    $found = $array ? [] : false;
-    
-    // Загрузка карты классов
-    $class_map_file = self::$cache_dir . DIRECTORY_SEPARATOR . 'class_map.php';
-    $class_map = [];
-    if (file_exists($class_map_file)) {
-        $class_map = include $class_map_file;
-    }
-    
-    // Прямой поиск в карте классов для 'classes'
-    if ($dir === 'classes') {
-        $class_name = str_replace('/', '\\', $file);
-        if (isset($class_map[$class_name])) {
-            $found = $class_map[$class_name];
-            if ($array) {
-                $found = [$found];
-            }
-            
-            // Сохраняем в кеш
-            if (self::$caching) {
-                self::$_files[$path . ($array ? '_array' : '_path')] = $found;
-                self::$_files_changed = true;
-            }
-            
-            return $found;
+    public static function find_file(string $dir, string $file, ?string $ext = null, bool $array = false): array|string
+    {
+        if ($ext === null) {
+            $ext = EXT;
+        } elseif ($ext) {
+            $ext = ".{$ext}";
+        } else {
+            $ext = '';
         }
-    }
-    
-    // Поиск по всем директориям в карте классов
-    if (!empty($class_map) && is_array($class_map)) {
-        foreach ($class_map as $class_name => $class_path) {
-            if (!is_string($class_path)) {
-                continue; // Пропускаем некорректные записи
+
+        $path = $dir . DIRECTORY_SEPARATOR . $file . $ext;
+
+        if (self::$caching && isset(self::$_files[$path . ($array ? '_array' : '_path')])) {
+            return self::$_files[$path . ($array ? '_array' : '_path')];
+        }
+
+        if (self::$profiling && class_exists('Profiler', false)) {
+            $benchmark = Profiler::start('Kohana', __FUNCTION__);
+        }
+
+        $found = $array ? [] : false;
+
+        if ($array || $dir === 'config' || $dir === 'i18n' || $dir === 'messages') {
+            $paths = array_reverse(self::$_paths);
+
+            foreach ($paths as $dir) {
+                if (is_file($dir . $path)) {
+                    if ($array) {
+                        $found[] = $dir . $path;
+                    } else {
+                        $found = $dir . $path;
+                    }
+                }
             }
-            $class_dir = dirname($class_path);
-            $full_path = $class_dir . DIRECTORY_SEPARATOR . $path;
-            
-            if (is_file($full_path)) {
-                if ($array) {
-                    $found[] = $full_path;
-                } else {
-                    $found = $full_path;
+        } else {
+            foreach (self::$_paths as $dir) {
+                if (is_file($dir . $path)) {
+                    $found = $dir . $path;
                     break;
                 }
             }
         }
-    }
-    
-    // Если класс не найден в карте или ищем не класс, используем стандартный поиск
-    if ($array ? empty($found) : !$found) {
-        $paths = $array ? array_reverse(self::$_paths) : self::$_paths;
-        foreach ($paths as $directory) {
-            if (!is_string($directory)) {
-                continue; // Пропускаем некорректные записи
-            }
-            $full_path = $directory . DIRECTORY_SEPARATOR . $path;
-            if (is_file($full_path)) {
-                if ($array) {
-                    $found[] = $full_path;
-                } else {
-                    $found = $full_path;
-                    break;
-                }
-            }
+
+        if ($found === false) {
+            return $array ? [] : '';
         }
+
+        if (self::$caching) {
+            self::$_files[$path . ($array ? '_array' : '_path')] = $found;
+            self::$_files_changed = true;
+        }
+
+        if (isset($benchmark)) {
+            Profiler::stop($benchmark);
+        }
+
+        return $found;
     }
-    
-    // Если файл не найден
-    if ($array ? empty($found) : !$found) {
-        return $array ? [] : '';
-    }
-    
-    // Сохраняем в кеш
-    if (self::$caching) {
-        self::$_files[$path . ($array ? '_array' : '_path')] = $found;
-        self::$_files_changed = true;
-    }
-    
-    return $found;
-}
 
     public static function list_files(?string $directory = null, ?array $paths = null): array
     {
@@ -901,7 +884,13 @@ protected static function build_class_map(): void
     // Список расширений файлов, настраиваемый
     $allowed_extensions = ['php', 'inc'];
 
+    // Проверяем существование и доступность директорий
     foreach (self::$_paths as $path) {
+        if (!is_dir($path) || !is_readable($path)) {
+            error_log("Директория недоступна или не существует: " . $path);
+            continue;
+        }
+
         $iterator = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator($path, RecursiveDirectoryIterator::SKIP_DOTS),
             RecursiveIteratorIterator::SELF_FIRST
@@ -912,6 +901,10 @@ protected static function build_class_map(): void
                 try {
                     $file_path = $file->getPathname();
                     $file_content = file_get_contents($file_path);
+
+                    if ($file_content === false) {
+                        throw new Exception('Ошибка при чтении файла.');
+                    }
                 } catch (Exception $e) {
                     // Обработка ошибок при чтении файла
                     error_log("Ошибка при чтении файла: " . $file_path . ". Сообщение: " . $e->getMessage());
@@ -924,8 +917,8 @@ protected static function build_class_map(): void
                 $count = count($tokens);
                 $i = 0;
 
-                $is_conditional_declaration = false; // Для обработки условных объявлений классов
-                $is_grouped_namespace = false;      // Для обработки пространств имен с фигурными скобками
+                $is_conditional_declaration = false;
+                $is_grouped_namespace = false;
 
                 while ($i < $count) {
                     $token = $tokens[$i];
@@ -935,13 +928,11 @@ protected static function build_class_map(): void
                         if ($token[0] === T_NAMESPACE) {
                             $namespace = '';
                             $i++;
-                            // Собираем пространство имен или групповые пространства имен
-                            while (isset($tokens[$i]) && (is_array($tokens[$i]) && in_array($tokens[$i][0], [T_STRING, T_NS_SEPARATOR], true))) {
+                            while (isset($tokens[$i]) && is_array($tokens[$i]) && in_array($tokens[$i][0], [T_STRING, T_NS_SEPARATOR], true)) {
                                 $namespace .= $tokens[$i][1];
                                 $i++;
                             }
 
-                            // Проверяем, используются ли групповые пространства имен
                             if (isset($tokens[$i]) && $tokens[$i] === '{') {
                                 $is_grouped_namespace = true;
                                 $i++;
@@ -963,7 +954,7 @@ protected static function build_class_map(): void
                         }
 
                         // Обнаружение условного объявления класса
-                        if ($token[0] === T_IF || $token[0] === T_ELSEIF || $token[0] === T_ELSE) {
+                        if (in_array($token[0], [T_IF, T_ELSEIF, T_ELSE], true)) {
                             $is_conditional_declaration = true;
                         }
 
@@ -971,15 +962,13 @@ protected static function build_class_map(): void
                         if (in_array($token[0], [T_CLASS, T_INTERFACE, T_TRAIT, T_ENUM], true)) {
                             if ($is_conditional_declaration) {
                                 $is_conditional_declaration = false;
-                                continue; // Пропускаем классы, объявленные внутри условий
+                                continue;
                             }
 
-                            // Проверка на анонимные классы
                             if (isset($tokens[$i + 2]) && $tokens[$i + 2] === '(') {
-                                continue; // Пропускаем анонимные классы
+                                continue;
                             }
 
-                            // Проверка на использование T_CLASS в контексте :: (например, ClassName::method())
                             if ($i > 0 && is_array($tokens[$i - 1]) && $tokens[$i - 1][0] === T_PAAMAYIM_NEKUDOTAYIM) {
                                 $i++;
                                 continue;
@@ -991,7 +980,6 @@ protected static function build_class_map(): void
                             }
                             if (isset($tokens[$i]) && is_array($tokens[$i]) && $tokens[$i][0] === T_STRING) {
                                 $class_name = $tokens[$i][1];
-                                // Если используются групповые пространства имен
                                 if ($is_grouped_namespace) {
                                     $grouped_namespace = $namespace;
                                     while (isset($tokens[$i]) && $tokens[$i] !== ';') {
@@ -1008,7 +996,6 @@ protected static function build_class_map(): void
                             }
                         }
                     }
-
                     $i++;
                 }
 
@@ -1019,8 +1006,12 @@ protected static function build_class_map(): void
                 }
 
                 try {
-                    // Хеширование файла для отслеживания изменений
-                    $file_hash[$file_path] = md5_file($file_path);
+                    // Хеширование файла с использованием SHA-256 для отслеживания изменений
+                    $file_hash[$file_path] = hash_file('sha256', $file_path);
+
+                    if ($file_hash[$file_path] === false) {
+                        throw new Exception('Ошибка при хешировании файла.');
+                    }
                 } catch (Exception $e) {
                     // Обработка ошибок при хешировании файла
                     error_log("Ошибка при хешировании файла: " . $file_path . ". Сообщение: " . $e->getMessage());
