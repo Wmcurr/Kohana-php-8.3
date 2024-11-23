@@ -1,21 +1,11 @@
 <?php
+declare(strict_types=1);
 
-/**
- * Object used for caching the results of select queries.  See [Results](/database/results#select-cached) for usage and examples.
- *
- * @package    Kohana/Database
- * @category   Query/Result
- * @author     Kohana Team
- * @copyright  (c) 2009 Kohana Team
- * @license    https://kohana.top/license
- */
-class Kohana_Database_Result_Cached extends Database_Result
+class Kohana_Database_Result_Cached extends Database_Result implements SeekableIterator
 {
     public function __construct(array $result, $sql, $as_object = null)
     {
         parent::__construct($result, $sql, $as_object);
-
-        // Find the number of rows in the result
         $this->_total_rows = count($result);
     }
 
@@ -24,26 +14,22 @@ class Kohana_Database_Result_Cached extends Database_Result
         // Cached results do not use resources
     }
 
-    public function cached()
+    public function cached(): Database_Result_Cached
     {
         return $this;
     }
 
-    public function seek($offset)
+    public function seek(int $offset): void
     {
         if ($this->offsetExists($offset)) {
             $this->_current_row = $offset;
-
-            return true;
         } else {
-            return false;
+            throw new OutOfBoundsException("Invalid seek position ($offset)");
         }
     }
 
-    public function current()
+    public function current(): mixed
     {
-        // Return an array of the row
         return $this->valid() ? $this->_result[$this->_current_row] : null;
     }
-
 }
