@@ -1,140 +1,119 @@
 <?php
 
+declare(strict_types=1);
+
 /**
- * Обертка для результата базы данных. См. [Результаты](/database/results) для использования и примеров.
+ * Wrapper for database result. See [Results](/database/results) for usage and examples.
  *
  * @package    Kohana/Database
  * @category   Query/Result
  * @autor      Kohana Team
- * @copyright  (c) 2008-2009 Kohana Team
  * @license    https://kohana.top/license
  */
 abstract class Kohana_Database_Result implements Countable, Iterator, SeekableIterator, ArrayAccess
 {
-    // Выполненный SQL для этого результата
-    protected $_query;
-    // Сырой ресурс результата
-    protected $_result;
-    // Общее количество строк и текущая строка
-    protected $_total_rows = 0;
-    protected $_current_row = 0;
-    // Возвращать строки как объект или ассоциативный массив
-    protected $_as_object;
-    // Параметры для __construct при использовании результатов объектов
-    protected $_object_params = null;
+    // Executed SQL for this result
+    protected string $_query;
+    // Raw result resource
+    protected mixed $_result;
+    // Total number of rows and current row
+    protected int $_total_rows = 0;
+    protected int $_current_row = 0;
+    // Return rows as object or associative array
+    protected string|bool $_as_object;
+    // Parameters for __construct when using object results
+    protected ?array $_object_params = null;
 
     /**
-     * Устанавливает общее количество строк и сохраняет результат локально.
+     * Sets the total number of rows and stores the result locally.
      *
-     * @param   mixed   $result     результат запроса
-     * @param   string  $sql        SQL запрос
-     * @param   mixed   $as_object
-     * @param   array   $params
+     * @param   mixed   $result     query result
+     * @param   string  $sql        SQL query
+     * @param   string|bool $as_object return as object or array
+     * @param   array|null $params   constructor parameters for objects
      * @return  void
      */
-    public function __construct($result, $sql, $as_object = false, array $params = null)
+    public function __construct(mixed $result, string $sql, string|bool $as_object = false, ?array $params = null)
     {
-        // Сохраняем результат локально
+        // Store result locally
         $this->_result = $result;
 
-        // Сохраняем SQL локально
+        // Store SQL locally
         $this->_query = $sql;
 
         if (is_object($as_object)) {
-            // Получаем имя класса объекта
+            // Get the class name of the object
             $as_object = get_class($as_object);
         }
 
-        // Результаты как объекты или ассоциативные массивы
+        // Results as objects or associative arrays
         $this->_as_object = $as_object;
 
         if ($params) {
-            // Параметры конструктора объекта
+            // Object constructor parameters
             $this->_object_params = $params;
         }
     }
 
     /**
-     * Уничтожение результата очищает все открытые наборы результатов.
+     * Destructs the result and clears all open result sets.
      *
      * @return  void
      */
     abstract public function __destruct();
 
     /**
-     * Получить кэшированный результат базы данных из текущего итератора результата.
+     * Get a cached database result from the current result iterator.
      *
      *     $cachable = serialize($result->cached());
      *
      * @return  Database_Result_Cached
      * @since   3.0.5
      */
-    public function cached()
+    public function cached(): Database_Result_Cached
     {
         return new Database_Result_Cached($this->as_array(), $this->_query, $this->_as_object);
     }
 
     /**
-     * Возвращает все строки результата в виде массива.
+     * Returns all the rows as an array.
      *
-     *     // Индексированный массив всех строк
+     *     // Indexed array of all rows
      *     $rows = $result->as_array();
      *
-     *     // Ассоциативный массив строк по "id"
+     *     // Associative array of rows by "id"
      *     $rows = $result->as_array('id');
      *
-     *     // Ассоциативный массив строк, "id" => "name"
+     *     // Associative array of rows, "id" => "name"
      *     $rows = $result->as_array('id', 'name');
      *
-     * @param   string  $key    колонка для ассоциативных ключей
-     * @param   string  $value  колонка для значений
+     * @param   string|null  $key    column for associative keys
+     * @param   string|null  $value  column for values
      * @return  array
      */
-    public function as_array($key = null, $value = null)
+    public function as_array(?string $key = null, ?string $value = null): array
     {
         $results = [];
 
-        if ($key === null AND $value === null) {
-            // Индексированные строки
-
+        if ($key === null && $value === null) {
+            // Indexed rows
             foreach ($this as $row) {
                 $results[] = $row;
             }
         } elseif ($key === null) {
-            // Индексированные колонки
-
-            if ($this->_as_object) {
-                foreach ($this as $row) {
-                    $results[] = $row->$value;
-                }
-            } else {
-                foreach ($this as $row) {
-                    $results[] = $row[$value];
-                }
+            // Indexed columns
+            foreach ($this as $row) {
+                $results[] = $this->_as_object ? $row->$value : $row[$value];
             }
         } elseif ($value === null) {
-            // Ассоциативные строки
-
-            if ($this->_as_object) {
-                foreach ($this as $row) {
-                    $results[$row->$key] = $row;
-                }
-            } else {
-                foreach ($this as $row) {
-                    $results[$row[$key]] = $row;
-                }
+            // Associative rows
+            foreach ($this as $row) {
+                $results[$this->_as_object ? $row->$key : $row[$key]] = $row;
             }
         } else {
-            // Ассоциативные колонки
-
-            if ($this->_as_object) {
-                foreach ($this as $row) {
-                    $results[$row->$key] = $row->$value;
-                }
-            } else {
-                foreach ($this as $row) {
-                    $results[$row[$key]] = $row[$value];
-                }
+            // Associative columns
+            foreach ($this as $row) {
+                $results[$this->_as_object ? $row->$key : $row[$key]] = $this->_as_object ? $row->$value : $row[$value];
             }
         }
 
@@ -144,37 +123,32 @@ abstract class Kohana_Database_Result implements Countable, Iterator, SeekableIt
     }
 
     /**
-     * Возвращает названную колонку из текущей строки.
+     * Returns the named column from the current row.
      *
-     *     // Получить значение "id"
+     *     // Get the "id" value
      *     $id = $result->get('id');
      *
-     * @param   string  $name     колонка для получения
-     * @param   mixed   $default  значение по умолчанию, если колонка не существует
+     * @param   string  $name     column name
+     * @param   mixed   $default  default value if column does not exist
      * @return  mixed
      */
-    public function get($name, $default = null)
+    public function get(string $name, mixed $default = null): mixed
     {
         $row = $this->current();
 
         if ($this->_as_object) {
-            if (isset($row->$name))
-                return $row->$name;
-        }
-        else {
-            if (isset($row[$name]))
-                return $row[$name];
+            return $row->$name ?? $default;
         }
 
-        return $default;
+        return $row[$name] ?? $default;
     }
 
     /**
-     * Реализует [Countable::count], возвращает общее количество строк.
+     * Implements [Countable::count], returns the total number of rows.
      *
      *     echo count($result);
      *
-     * @return  integer
+     * @return  int
      */
     public function count(): int
     {
@@ -182,72 +156,73 @@ abstract class Kohana_Database_Result implements Countable, Iterator, SeekableIt
     }
 
     /**
-     * Реализует [ArrayAccess::offsetExists], определяет, существует ли строка.
+     * Implements [ArrayAccess::offsetExists], determines if a row exists.
      *
      *     if (isset($result[10]))
      *     {
-     *         // Строка 10 существует
+     *         // Row 10 exists
      *     }
      *
-     * @param   int     $offset
-     * @return  boolean
+     * @param   mixed $offset
+     * @return  bool
      */
-    public function offsetExists($offset): bool
+    public function offsetExists(mixed $offset): bool
     {
-        return ($offset >= 0 AND $offset < $this->_total_rows);
+        return is_int($offset) && $offset >= 0 && $offset < $this->_total_rows;
     }
 
     /**
-     * Реализует [ArrayAccess::offsetGet], получает заданную строку.
+     * Implements [ArrayAccess::offsetGet], gets the specified row.
      *
      *     $row = $result[10];
      *
-     * @param   int     $offset
+     * @param   mixed $offset
      * @return  mixed
      */
-    public function offsetGet($offset): mixed
+    public function offsetGet(mixed $offset): mixed
     {
-        if (!$this->seek($offset))
+        if (!$this->seek($offset)) {
             return null;
+        }
 
         return $this->current();
     }
 
     /**
-     * Реализует [ArrayAccess::offsetSet], выбрасывает ошибку.
+     * Implements [ArrayAccess::offsetSet], throws an error.
      *
-     * [!!] Вы не можете изменять результат базы данных.
+     * [!!] You cannot modify a database result.
      *
-     * @param   int     $offset
-     * @param   mixed   $value
+     * @param   mixed $offset
+     * @param   mixed $value
      * @return  void
      * @throws  Kohana_Exception
      */
-    final public function offsetSet($offset, $value): void
+    final public function offsetSet(mixed $offset, mixed $value): void
     {
-        throw new Kohana_Exception('Результаты базы данных только для чтения');
+        throw new Kohana_Exception('Database results are read-only');
     }
 
     /**
-     * Реализует [ArrayAccess::offsetUnset], выбрасывает ошибку.
+     * Implements [ArrayAccess::offsetUnset], throws an error.
      *
-     * [!!] Вы не можете изменять результат базы данных.
+     * [!!] You cannot modify a database result.
      *
-     * @param   int     $offset
+     * @param   mixed $offset
      * @return  void
      * @throws  Kohana_Exception
      */
-    final public function offsetUnset($offset): void
+    final public function offsetUnset(mixed $offset): void
     {
-        throw new Kohana_Exception('Результаты базы данных только для чтения');
+        throw new Kohana_Exception('Database results are read-only');
     }
 
     /**
-     * Реализует [Iterator::key], возвращает текущий номер строки.
+     * Implements [Iterator::key], returns the current row number.
      *
      *     echo key($result);
      *
-     * @return  integer
+     * @return  int
      */
     public function key(): int
     {
@@ -255,7 +230,7 @@ abstract class Kohana_Database_Result implements Countable, Iterator, SeekableIt
     }
 
     /**
-     * Реализует [Iterator::next], переходит к следующей строке.
+     * Implements [Iterator::next], moves to the next row.
      *
      *     next($result);
      *
@@ -267,20 +242,20 @@ abstract class Kohana_Database_Result implements Countable, Iterator, SeekableIt
     }
 
     /**
-     * Реализует [Iterator::prev], переходит к предыдущей строке.
+     * Implements [Iterator::prev], moves to the previous row.
      *
      *     prev($result);
      *
      * @return  $this
      */
-    public function prev()
+    public function prev(): self
     {
         --$this->_current_row;
         return $this;
     }
 
     /**
-     * Реализует [Iterator::rewind], устанавливает текущую строку в ноль.
+     * Implements [Iterator::rewind], sets the current row to zero.
      *
      *     rewind($result);
      *
@@ -292,15 +267,29 @@ abstract class Kohana_Database_Result implements Countable, Iterator, SeekableIt
     }
 
     /**
-     * Реализует [Iterator::valid], проверяет, существует ли текущая строка.
+     * Implements [Iterator::valid], checks if the current row exists.
      *
-     * [!!] Этот метод используется только внутренне.
+     * [!!] This method is only used internally.
      *
-     * @return  boolean
+     * @return  bool
      */
     public function valid(): bool
     {
         return $this->offsetExists($this->_current_row);
     }
 
+/**
+ * Abstract method to seek to a specific row.
+ *
+ * @param   int $position
+ * @return  void
+ */
+abstract public function seek(int $position): void;
+
+    /**
+     * Abstract method to get the current row.
+     *
+     * @return  mixed
+     */
+    abstract public function current(): mixed;
 }
