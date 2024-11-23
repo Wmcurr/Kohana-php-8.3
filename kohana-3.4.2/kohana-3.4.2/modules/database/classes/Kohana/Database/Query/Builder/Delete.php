@@ -1,43 +1,41 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Database query builder for DELETE statements. See [Query Builder](/database/query/builder) for usage and examples.
  *
  * @package    Kohana/Database
  * @category   Query
- * @author     Kohana Team
- * @copyright  (c) 2008-2009 Kohana Team
- * @license    https://kohana.top/license
  */
 class Kohana_Database_Query_Builder_Delete extends Database_Query_Builder_Where
 {
     // DELETE FROM ...
-    protected $_table;
+    protected string|array|Database_Expression|null $_table = null;
 
     /**
      * Set the table for a delete.
      *
-     * @param   mixed  $table  table name or [$table, $alias] or object
-     * @return  void
+     * @param string|array|Database_Expression|null $table Table name or [$table, $alias] or object.
      */
-    public function __construct($table = null)
+    public function __construct(string|array|Database_Expression|null $table = null)
     {
-        if ($table) {
-            // Set the inital table name
+        if ($table !== null) {
+            // Set the initial table name
             $this->_table = $table;
         }
 
         // Start the query with no SQL
-        return parent::__construct(Database::DELETE, '');
+        parent::__construct(QueryType::DELETE, '');
     }
 
     /**
      * Sets the table to delete from.
      *
-     * @param   mixed  $table  table name or [$table, $alias] or object
-     * @return  $this
+     * @param string|array|Database_Expression $table Table name or [$table, $alias] or object.
+     * @return $this
      */
-    public function table($table)
+    public function table(string|array|Database_Expression $table): self
     {
         $this->_table = $table;
 
@@ -47,10 +45,10 @@ class Kohana_Database_Query_Builder_Delete extends Database_Query_Builder_Where
     /**
      * Compile the SQL query and return it.
      *
-     * @param   mixed  $db  Database instance or name of instance
-     * @return  string
+     * @param mixed $db Database instance or name of instance.
+     * @return string
      */
-    public function compile($db = null)
+    public function compile(mixed $db = null): string
     {
         if (!is_object($db)) {
             // Get the database instance
@@ -75,21 +73,22 @@ class Kohana_Database_Query_Builder_Delete extends Database_Query_Builder_Where
             $query .= ' LIMIT ' . $this->_limit;
         }
 
-        $this->_sql = $query;
-
-        return parent::compile($db);
+        return $query;
     }
 
-    public function reset()
+    /**
+     * Reset the builder state.
+     *
+     * @return $this
+     */
+    public function reset(): self
     {
         $this->_table = null;
         $this->_where = [];
-
+        $this->_order_by = [];
+        $this->_limit = null;
         $this->_parameters = [];
-
-        $this->_sql = null;
 
         return $this;
     }
-
 }
