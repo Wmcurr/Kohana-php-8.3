@@ -11,23 +11,22 @@
  *
  * @package    Kohana/ORM
  * @author     Kohana Team
- * @copyright  (c) 2007-2012 Kohana Team
- * @license    https://kohana.top/license
+ * @php 8.3
+ * @16.11.24
  */
-class Kohana_ORM extends Model implements serializable
+class Kohana_ORM extends Model
 {
-    /**
-     * Stores column information for ORM models
-     * @var array
-     */
-    protected static $_column_cache = [];
+/**
+ * Stores column information for ORM models
+ * @var array
+ */
+    protected static array $_column_cache = [];
 
-    /**
-     * Initialization storage for ORM models
-     * @var array
-     */
-    protected static $_init_cache = [];
-
+/**
+ * Initialization storage for ORM models
+ * @var array
+ */
+    protected static array $_init_cache = [];
     /**
      * Creates and returns a new model.
      * Model name must be passed with its' original casing, e.g.
@@ -39,237 +38,235 @@ class Kohana_ORM extends Model implements serializable
      * @param   mixed   $id     Parameter for find()
      * @return  ORM
      */
-    public static function factory($model, $id = null)
+    public static function factory(string $name, ...$params): self
     {
-        // Set class name
-        $model = 'Model_' . $model;
+        $model = 'Model_' . $name;
 
-        return new $model($id);
+        if (!class_exists($model)) {
+            throw new ORM_Exception("Model class {$model} does not exist.");
+        }
+
+        return new $model(...$params);
     }
+
 
     /**
      * "Has one" relationships
      * @var array
      */
-    protected $_has_one = [];
+    protected array $_has_one = [];
 
     /**
      * "Belongs to" relationships
      * @var array
      */
-    protected $_belongs_to = [];
+    protected array $_belongs_to = [];
 
     /**
      * "Has many" relationships
      * @var array
      */
-    protected $_has_many = [];
+    protected array $_has_many = [];
 
     /**
      * Relationships that should always be joined
      * @var array
      */
-    protected $_load_with = [];
+    protected array $_load_with = [];
 
     /**
      * Validation object created before saving/updating
      * @var Validation
      */
-    protected $_validation = null;
+    protected ?Validation $_validation = null;
 
     /**
      * Current object
      * @var array
      */
-    protected $_object = [];
+    protected array $_object = [];
 
     /**
      * @var array
      */
-    protected $_changed = [];
+    protected array $_changed = [];
 
     /**
      * @var array
      */
-    protected $_original_values = [];
+    protected array $_original_values = [];
 
     /**
      * @var array
      */
-    protected $_related = [];
+    protected array $_related = [];
 
     /**
      * @var bool
      */
-    protected $_valid = false;
+    protected bool $_valid = false;
 
     /**
      * @var bool
      */
-    protected $_loaded = false;
+    protected bool $_loaded = false;
 
     /**
      * @var bool
      */
-    protected $_saved = false;
+    protected bool $_saved = false;
 
     /**
      * @var array
      */
-    protected $_sorting;
+    protected array $_sorting = [];
 
     /**
      * Foreign key suffix
      * @var string
      */
-    protected $_foreign_key_suffix = '_id';
+    protected string $_foreign_key_suffix = '_id';
 
     /**
      * Model name
      * @var string
      */
-    protected $_object_name;
+    protected ?string $_object_name = null;
 
     /**
      * Plural model name
      * @var string
      */
-    protected $_object_plural;
+    protected ?string $_object_plural = null;
 
     /**
      * Table name
      * @var string
      */
-    protected $_table_name;
+    protected ?string $_table_name = null;
 
     /**
      * Table columns
      * @var array
      */
-    protected $_table_columns;
+    protected array $_table_columns = [];
 
     /**
      * Auto-update columns for updates
      * @var string
      */
-    protected $_updated_column = null;
+    protected ?string $_updated_column = null;
 
     /**
      * Auto-update columns for creation
      * @var string
      */
-    protected $_created_column = null;
+    protected ?string $_created_column = null;
 
     /**
      * Auto-serialize and unserialize columns on get/set
      * @var array
      */
-    protected $_serialize_columns = [];
+    protected array $_serialize_columns = [];
 
     /**
      * Table primary key
      * @var string
      */
-    protected $_primary_key = 'id';
+    protected string $_primary_key = 'id';
 
     /**
      * Primary key value
      * @var mixed
      */
-    protected $_primary_key_value;
+    protected mixed $_primary_key_value;
 
     /**
      * Model configuration, table names plural?
      * @var bool
      */
-    protected $_table_names_plural = true;
+    protected bool $_table_names_plural = true;
 
     /**
      * Model configuration, reload on wakeup?
      * @var bool
      */
-    protected $_reload_on_wakeup = true;
+    protected bool $_reload_on_wakeup = true;
 
     /**
      * Database Object
      * @var Database
      */
-    protected $_db = null;
+    protected ?Database $_db = null;
 
     /**
      * Database config group
      * @var String
      */
-    protected $_db_group = null;
+    protected ?string $_db_group = null;
 
     /**
      * Database methods applied
      * @var array
      */
-    protected $_db_applied = [];
+    protected array $_db_applied = [];
 
     /**
      * Database methods pending
      * @var array
      */
-    protected $_db_pending = [];
+    protected array $_db_pending = [];
 
     /**
      * Reset builder
      * @var bool
      */
-    protected $_db_reset = true;
+    protected bool $_db_reset = true;
 
     /**
      * Database query builder
      * @var Database_Query_Builder_Select
      */
-    protected $_db_builder;
+    protected ?Database_Query_Builder_Select $_db_builder = null;
 
     /**
      * With calls already applied
      * @var array
      */
-    protected $_with_applied = [];
+    protected array $_with_applied = [];
 
     /**
      * Data to be loaded into the model from a database call cast
      * @var array
      */
-    protected $_cast_data = [];
+    protected array $_cast_data = [];
 
     /**
      * The message filename used for validation errors.
      * Defaults to ORM::$_object_name
      * @var string
      */
-    protected $_errors_filename = null;
-
+    protected ?string $_errors_filename = null;
     /**
      * Constructs a new model and loads a record if given
      *
      * @param   mixed $id Parameter for find or object to load
      */
-    public function __construct($id = null)
+    public function __construct(mixed $id = null)
     {
         $this->_initialize();
 
         if ($id !== null) {
             if (is_array($id)) {
                 foreach ($id as $column => $value) {
-                    // Passing an array of column => values
                     $this->where($column, '=', $value);
                 }
-
                 $this->find();
             } else {
-                // Passing the primary key
                 $this->where($this->_object_name . '.' . $this->_primary_key, '=', $id)->find();
             }
         } elseif (!empty($this->_cast_data)) {
-            // Load preloaded data from a database call cast
             $this->_load_values($this->_cast_data);
-
             $this->_cast_data = [];
         }
     }
@@ -280,14 +277,12 @@ class Kohana_ORM extends Model implements serializable
      *
      * @return void
      */
-    protected function _initialize()
+    protected function _initialize(): void
     {
-        // Set the object name if none predefined
         if (empty($this->_object_name)) {
             $this->_object_name = strtolower(substr(get_class($this), 6));
         }
 
-        // Check if this model has already been initialized
         if (!$init = Arr::get(ORM::$_init_cache, $this->_object_name, false)) {
             $init = [
                 '_belongs_to' => [],
@@ -295,79 +290,42 @@ class Kohana_ORM extends Model implements serializable
                 '_has_many' => [],
             ];
 
-            // Set the object plural name if none predefined
-            if (!isset($this->_object_plural)) {
-                $init['_object_plural'] = Inflector::plural($this->_object_name);
-            }
-
-            if (!$this->_errors_filename) {
-                $init['_errors_filename'] = $this->_object_name;
-            }
-
-            if (!is_object($this->_db)) {
-                // Get database instance
-                $init['_db'] = Database::instance($this->_db_group);
-            }
-
-            if (empty($this->_table_name)) {
-                // Table name is the same as the object name
-                $init['_table_name'] = $this->_object_name;
-
-                if ($this->_table_names_plural === true) {
-                    // Make the table name plural
-                    $init['_table_name'] = Arr::get($init, '_object_plural', $this->_object_plural);
-                }
-            }
+            $init['_object_plural'] = $this->_object_plural ?? Inflector::plural($this->_object_name);
+            $init['_errors_filename'] = $this->_errors_filename ?? $this->_object_name;
+            $init['_db'] = $this->_db ?? Database::instance($this->_db_group);
+            $init['_table_name'] = $this->_table_names_plural
+                ? Arr::get($init, '_object_plural', $this->_object_plural)
+                : $this->_object_name;
 
             $defaults = [];
-
             foreach ($this->_belongs_to as $alias => $details) {
-                if (!isset($details['model'])) {
-                    $defaults['model'] = str_replace(' ', '_', ucwords(str_replace('_', ' ', $alias)));
-                }
-
+                $defaults['model'] = str_replace(' ', '_', ucwords(str_replace('_', ' ', $alias)));
                 $defaults['foreign_key'] = $alias . $this->_foreign_key_suffix;
-
                 $init['_belongs_to'][$alias] = array_merge($defaults, $details);
             }
 
             foreach ($this->_has_one as $alias => $details) {
-                if (!isset($details['model'])) {
-                    $defaults['model'] = str_replace(' ', '_', ucwords(str_replace('_', ' ', $alias)));
-                }
-
+                $defaults['model'] = str_replace(' ', '_', ucwords(str_replace('_', ' ', $alias)));
                 $defaults['foreign_key'] = $this->_object_name . $this->_foreign_key_suffix;
-
                 $init['_has_one'][$alias] = array_merge($defaults, $details);
             }
 
             foreach ($this->_has_many as $alias => $details) {
-                if (!isset($details['model'])) {
-                    $defaults['model'] = str_replace(' ', '_', ucwords(str_replace('_', ' ', Inflector::singular($alias))));
-                }
-
+                $defaults['model'] = str_replace(' ', '_', ucwords(str_replace('_', ' ', Inflector::singular($alias))));
                 $defaults['foreign_key'] = $this->_object_name . $this->_foreign_key_suffix;
-                $defaults['through'] = null;
-
-                if (!isset($details['far_key'])) {
-                    $defaults['far_key'] = Inflector::singular($alias) . $this->_foreign_key_suffix;
-                }
-
+                $defaults['through'] = $details['through'] ?? null;
+                $defaults['far_key'] = $details['far_key'] ?? Inflector::singular($alias) . $this->_foreign_key_suffix;
                 $init['_has_many'][$alias] = array_merge($defaults, $details);
             }
 
             ORM::$_init_cache[$this->_object_name] = $init;
         }
 
-        // Assign initialized properties to the current object
         foreach ($init as $property => $value) {
             $this->{$property} = $value;
         }
 
-        // Load column information
         $this->reload_columns();
-
-        // Clear initial model state
         $this->clear();
     }
 
@@ -406,21 +364,16 @@ class Kohana_ORM extends Model implements serializable
      * @param   boolean $force Force reloading
      * @return  ORM
      */
-    public function reload_columns($force = false)
+    public function reload_columns(bool $force = false): self
     {
-        if ($force === true OR empty($this->_table_columns)) {
+        if ($force || empty($this->_table_columns)) {
             if (isset(ORM::$_column_cache[$this->_object_name])) {
-                // Use cached column information
                 $this->_table_columns = ORM::$_column_cache[$this->_object_name];
             } else {
-                // Grab column information from database
                 $this->_table_columns = $this->list_columns();
-
-                // Load column cache
                 ORM::$_column_cache[$this->_object_name] = $this->_table_columns;
             }
         }
-
         return $this;
     }
 
@@ -516,14 +469,17 @@ class Kohana_ORM extends Model implements serializable
      *
      * @return string
      */
-    public function serialize()
+    public function __serialize(): array
     {
-        // Store only information about the object
-        foreach (['_primary_key_value', '_object', '_changed', '_loaded', '_saved', '_sorting', '_original_values'] as $var) {
-            $data[$var] = $this->{$var};
-        }
-
-        return serialize($data);
+        return [
+            '_primary_key_value' => $this->_primary_key_value,
+            '_object' => $this->_object,
+            '_changed' => $this->_changed,
+            '_loaded' => $this->_loaded,
+            '_saved' => $this->_saved,
+            '_sorting' => $this->_sorting,
+            '_original_values' => $this->_original_values,
+        ];
     }
 
     /**
@@ -544,17 +500,14 @@ class Kohana_ORM extends Model implements serializable
      * @param string $data String for unserialization
      * @return  void
      */
-    public function unserialize($data)
+ // Новая версия метода десериализации
+    public function __unserialize(array $data): void
     {
-        // Initialize model
         $this->_initialize();
-
-        foreach (unserialize($data) as $name => $var) {
+        foreach ($data as $name => $var) {
             $this->{$name} = $var;
         }
-
-        if ($this->_reload_on_wakeup === true) {
-            // Reload the object
+        if ($this->_reload_on_wakeup) {
             $this->reload();
         }
     }
@@ -749,20 +702,15 @@ class Kohana_ORM extends Model implements serializable
      *
      * @return array
      */
-    public function as_array()
+    public function as_array(): array
     {
         $object = [];
-
         foreach ($this->_object as $column => $value) {
-            // Call __get for any user processing
             $object[$column] = $this->__get($column);
         }
-
         foreach ($this->_related as $column => $model) {
-            // Include any related objects that are already loaded
             $object[$column] = $model->as_array();
         }
-
         return $object;
     }
 
@@ -1288,7 +1236,7 @@ class Kohana_ORM extends Model implements serializable
      * @param  Validation $validation Validation object
      * @return ORM
      */
-    public function save(Validation $validation = null)
+    public function save(?Validation $validation = null): self
     {
         return $this->loaded() ? $this->update($validation) : $this->create($validation);
     }
@@ -1300,17 +1248,14 @@ class Kohana_ORM extends Model implements serializable
      * @throws Kohana_Exception
      * @return ORM
      */
-    public function delete()
+    public function delete(): self
     {
-        if (!$this->_loaded)
-            throw new Kohana_Exception('Cannot delete :model model because it is not loaded.', [':model' => $this->_object_name]);
+        if (!$this->_loaded) {
+            throw new ORM_Exception('Cannot delete model because it is not loaded.');
+        }
 
-        // Use primary key value
-        $id = $this->pk();
-
-        // Delete the object
         DB::delete($this->_table_name)
-            ->where($this->_primary_key, '=', $id)
+            ->where($this->_primary_key, '=', $this->pk())
             ->execute($this->_db);
 
         return $this->clear();
@@ -1553,7 +1498,7 @@ class Kohana_ORM extends Model implements serializable
      *
      * @return mixed Primary key
      */
-    public function pk()
+    public function pk(): mixed
     {
         return $this->_primary_key_value;
     }
@@ -1610,12 +1555,12 @@ class Kohana_ORM extends Model implements serializable
         return $this->_object_plural;
     }
 
-    public function loaded()
+    public function loaded(): bool
     {
         return $this->_loaded;
     }
 
-    public function saved()
+    public function saved(): bool
     {
         return $this->_saved;
     }
@@ -1890,16 +1835,12 @@ class Kohana_ORM extends Model implements serializable
      * @param   ...
      * @return  $this
      */
-    public function select($columns = null)
+    public function select(...$columns): self
     {
-        $columns = func_get_args();
-
-        // Add pending database call which is executed after query type is determined
         $this->_db_pending[] = [
             'name' => 'select',
             'args' => $columns,
         ];
-
         return $this;
     }
 
@@ -1967,16 +1908,12 @@ class Kohana_ORM extends Model implements serializable
      * @param   ...
      * @return  $this
      */
-    public function group_by($columns)
+    public function group_by(...$columns): self
     {
-        $columns = func_get_args();
-
-        // Add pending database call which is executed after query type is determined
         $this->_db_pending[] = [
             'name' => 'group_by',
             'args' => $columns,
         ];
-
         return $this;
     }
 
@@ -2193,17 +2130,13 @@ class Kohana_ORM extends Model implements serializable
      * @param   mixed    $value  the value to check for uniqueness
      * @return  bool     whteher the value is unique
      */
-    public function unique($field, $value)
+    public function unique(string $field, mixed $value): bool
     {
         $model = ORM::factory($this->object_name())
             ->where($field, '=', $value)
             ->find();
 
-        if ($this->loaded()) {
-            return (!($model->loaded() AND $model->pk() != $this->pk()));
-        }
-
-        return (!$model->loaded());
+        return $this->loaded() ? (!($model->loaded() && $model->pk() != $this->pk())) : !$model->loaded();
     }
 
 }
