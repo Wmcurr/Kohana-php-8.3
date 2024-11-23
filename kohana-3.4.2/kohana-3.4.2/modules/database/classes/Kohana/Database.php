@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Database connection wrapper/helper.
  *
@@ -7,15 +9,13 @@
  * name is the [config](database/config) group.
  *
  * This class provides connection instance management via Database Drivers, as
- * well as quoting, escaping and other related functions. Querys are done using
+ * well as quoting, escaping, and other related functions. Queries are done using
  * [Database_Query] and [Database_Query_Builder] objects, which can be easily
  * created using the [DB] helper class.
  *
  * @package    Kohana/Database
  * @category   Base
  * @author     Kohana Team
- * @copyright  (c) 2008-2012 Kohana Team
- * @license    https://kohana.top/license
  */
 abstract class Kohana_Database
 {
@@ -26,14 +26,14 @@ abstract class Kohana_Database
     const DELETE = 4;
 
     /**
-     * @var  string  default instance name
+     * @var string default instance name
      */
-    public static $default = 'default';
+    public static string $default = 'default';
 
     /**
-     * @var  array  Database instances
+     * @var array Database instances
      */
-    public static $instances = [];
+    public static array $instances = [];
 
     /**
      * Get a singleton Database instance. If configuration is not specified,
@@ -46,11 +46,12 @@ abstract class Kohana_Database
      *     // Create a custom configured instance
      *     $db = Database::instance('custom', $config);
      *
-     * @param   string   $name    instance name
-     * @param   array    $config  configuration parameters
-     * @return  Database
+     * @param string|null $name instance name
+     * @param array|null $config configuration parameters
+     * @return Database
+     * @throws Kohana_Exception
      */
-    public static function instance($name = null, array $config = null)
+    public static function instance(?string $name = null, ?array $config = null): Database
     {
         if ($name === null) {
             // Use the default instance name
@@ -81,26 +82,31 @@ abstract class Kohana_Database
     }
 
     /**
-     * @var  string  the last query executed
+     * @var string the last query executed
      */
-    public $last_query;
+    public string $last_query;
+
     // Character that is used to quote identifiers
-    protected $_identifier = '"';
+    protected string $_identifier = '"';
+
     // Instance name
-    protected $_instance;
+    protected string $_instance;
+
     // Raw server connection
     protected $_connection;
+
     // Configuration array
-    protected $_config;
+    protected array $_config;
 
     /**
      * Stores the database configuration locally and name the instance.
      *
-     * [!!] This method cannot be accessed directly, you must use [Database::instance].
+     * [!!] This method cannot be accessed directly; you must use [Database::instance].
      *
-     * @return  void
+     * @param string $name
+     * @param array $config
      */
-    public function __construct($name, array $config)
+    public function __construct(string $name, array $config)
     {
         // Set the instance name
         $this->_instance = $name;
@@ -121,8 +127,6 @@ abstract class Kohana_Database
      *
      * [!!] Calling `unset($db)` is not enough to destroy the database, as it
      * will still be stored in `Database::$instances`.
-     *
-     * @return  void
      */
     public function __destruct()
     {
@@ -134,9 +138,9 @@ abstract class Kohana_Database
      *
      *     echo (string) $db;
      *
-     * @return  string
+     * @return string
      */
-    public function __toString()
+    public function __toString(): string
     {
         return $this->_instance;
     }
@@ -147,19 +151,20 @@ abstract class Kohana_Database
      *
      *     $db->connect();
      *
-     * @throws  Database_Exception
-     * @return  void
+     * @throws Database_Exception
+     * @return void
      */
-    abstract public function connect();
+    abstract public function connect(): void;
+
     /**
      * Disconnect from the database. This is called automatically by [Database::__destruct].
      * Clears the database instance from [Database::$instances].
      *
      *     $db->disconnect();
      *
-     * @return  boolean
+     * @return bool
      */
-    public function disconnect()
+    public function disconnect(): bool
     {
         unset(Database::$instances[$this->_instance]);
 
@@ -171,11 +176,12 @@ abstract class Kohana_Database
      *
      *     $db->set_charset('utf8');
      *
-     * @throws  Database_Exception
-     * @param   string   $charset  character set name
-     * @return  void
+     * @throws Database_Exception
+     * @param string $charset character set name
+     * @return void
      */
-    abstract public function set_charset($charset);
+    abstract public function set_charset(string $charset): void;
+
     /**
      * Perform an SQL query of the given type.
      *
@@ -185,15 +191,15 @@ abstract class Kohana_Database
      *     // Make a SELECT query and use "Model_User" for the results
      *     $db->query(Database::SELECT, 'SELECT * FROM users LIMIT 1', 'Model_User');
      *
-     * @param   integer  $type       Database::SELECT, Database::INSERT, etc
-     * @param   string   $sql        SQL query
-     * @param   mixed    $as_object  result object class string, true for stdClass, false for assoc array
-     * @param   array    $params     object construct parameters for result class
-     * @return  object   Database_Result for SELECT queries
-     * @return  array    list (insert id, row count) for INSERT queries
-     * @return  integer  number of affected rows for all other queries
+     * @param int $type Database::SELECT, Database::INSERT, etc.
+     * @param string $sql SQL query
+     * @param mixed $as_object result object class string, true for stdClass, false for assoc array
+     * @param array|null $params object construct parameters for result class
+     * @return mixed Database_Result for SELECT queries, list (insert id, row count) for INSERT queries,
+     * number of affected rows for all other queries
      */
-    abstract public function query($type, $sql, $as_object = false, array $params = null);
+    abstract public function query(int $type, string $sql, $as_object = false, ?array $params = null);
+
     /**
      * Start a SQL transaction
      *
@@ -212,44 +218,47 @@ abstract class Kohana_Database
      *          $db->rollback();
      *      }
      *
-     * @param string $mode  transaction mode
-     * @return  boolean
+     * @param string|null $mode transaction mode
+     * @return bool
      */
-    abstract public function begin($mode = null);
+    abstract public function begin(?string $mode = null): bool;
+
     /**
      * Commit the current transaction
      *
      *     // Commit the database changes
      *     $db->commit();
      *
-     * @return  boolean
+     * @return bool
      */
-    abstract public function commit();
+    abstract public function commit(): bool;
+
     /**
      * Abort the current transaction
      *
      *     // Undo the changes
      *     $db->rollback();
      *
-     * @return  boolean
+     * @return bool
      */
-    abstract public function rollback();
+    abstract public function rollback(): bool;
+
     /**
      * Count the number of records in a table.
      *
      *     // Get the total number of records in the "users" table
      *     $count = $db->count_records('users');
      *
-     * @param   mixed    $table  table name string or [query, alias]
-     * @return  integer
+     * @param mixed $table table name string or [query, alias]
+     * @return int
      */
-    public function count_records($table)
+    public function count_records($table): int
     {
         // Quote the table name
         $table = $this->quote_table($table);
 
-        return $this->query(Database::SELECT, 'SELECT COUNT(*) AS total_row_count FROM ' . $table, false)
-                ->get('total_row_count');
+        return (int)$this->query(Database::SELECT, 'SELECT COUNT(*) AS total_row_count FROM ' . $table, false)
+            ->get('total_row_count');
     }
 
     /**
@@ -257,66 +266,71 @@ abstract class Kohana_Database
      *
      *     $db->datatype('char');
      *
-     * @param   string  $type  SQL data type
-     * @return  array
+     * @param string $type SQL data type
+     * @return array
      */
-    public function datatype($type)
-    {
-        static $types = [
-            // SQL-92
-            'bit' => ['type' => 'string', 'exact' => true],
-            'bit varying' => ['type' => 'string'],
-            'char' => ['type' => 'string', 'exact' => true],
-            'char varying' => ['type' => 'string'],
-            'character' => ['type' => 'string', 'exact' => true],
-            'character varying' => ['type' => 'string'],
-            'date' => ['type' => 'string'],
-            'dec' => ['type' => 'float', 'exact' => true],
-            'decimal' => ['type' => 'float', 'exact' => true],
-            'double precision' => ['type' => 'float'],
-            'float' => ['type' => 'float'],
-            'int' => ['type' => 'int', 'min' => '-2147483648', 'max' => '2147483647'],
-            'integer' => ['type' => 'int', 'min' => '-2147483648', 'max' => '2147483647'],
-            'interval' => ['type' => 'string'],
-            'national char' => ['type' => 'string', 'exact' => true],
-            'national char varying' => ['type' => 'string'],
-            'national character' => ['type' => 'string', 'exact' => true],
-            'national character varying' => ['type' => 'string'],
-            'nchar' => ['type' => 'string', 'exact' => true],
-            'nchar varying' => ['type' => 'string'],
-            'numeric' => ['type' => 'float', 'exact' => true],
-            'real' => ['type' => 'float'],
-            'smallint' => ['type' => 'int', 'min' => '-32768', 'max' => '32767'],
-            'time' => ['type' => 'string'],
-            'time with time zone' => ['type' => 'string'],
-            'timestamp' => ['type' => 'string'],
-            'timestamp with time zone' => ['type' => 'string'],
-            'varchar' => ['type' => 'string'],
-            // SQL:1999
-            'binary large object' => ['type' => 'string', 'binary' => true],
-            'blob' => ['type' => 'string', 'binary' => true],
-            'boolean' => ['type' => 'bool'],
-            'char large object' => ['type' => 'string'],
-            'character large object' => ['type' => 'string'],
-            'clob' => ['type' => 'string'],
-            'national character large object' => ['type' => 'string'],
-            'nchar large object' => ['type' => 'string'],
-            'nclob' => ['type' => 'string'],
-            'time without time zone' => ['type' => 'string'],
-            'timestamp without time zone' => ['type' => 'string'],
-            // SQL:2003
-            'bigint' => ['type' => 'int', 'min' => '-9223372036854775808', 'max' => '9223372036854775807'],
-            // SQL:2008
-            'binary' => ['type' => 'string', 'binary' => true, 'exact' => true],
-            'binary varying' => ['type' => 'string', 'binary' => true],
-            'varbinary' => ['type' => 'string', 'binary' => true],
-        ];
+public function datatype(string $type): array
+{
+    static $types = [
+        // SQL:92
+        'bit' => ['type' => 'string', 'exact' => true],
+        'bit varying' => ['type' => 'string'],
+        'char' => ['type' => 'string', 'exact' => true],
+        'char varying' => ['type' => 'string'],
+        'character' => ['type' => 'string', 'exact' => true],
+        'character varying' => ['type' => 'string'],
+        'date' => ['type' => 'string'],
+        'dec' => ['type' => 'float', 'exact' => true],
+        'decimal' => ['type' => 'float', 'exact' => true],
+        'double precision' => ['type' => 'float'],
+        'float' => ['type' => 'float'],
+        'int' => ['type' => 'int', 'min' => '-2147483648', 'max' => '2147483647'],
+        'integer' => ['type' => 'int', 'min' => '-2147483648', 'max' => '2147483647'],
+        'interval' => ['type' => 'string'],
+        'national char' => ['type' => 'string', 'exact' => true],
+        'national char varying' => ['type' => 'string'],
+        'national character' => ['type' => 'string', 'exact' => true],
+        'national character varying' => ['type' => 'string'],
+        'nchar' => ['type' => 'string', 'exact' => true],
+        'nchar varying' => ['type' => 'string'],
+        'numeric' => ['type' => 'float', 'exact' => true],
+        'real' => ['type' => 'float'],
+        'smallint' => ['type' => 'int', 'min' => '-32768', 'max' => '32767'],
+        'time' => ['type' => 'string'],
+        'time with time zone' => ['type' => 'string'],
+        'timestamp' => ['type' => 'string'],
+        'timestamp with time zone' => ['type' => 'string'],
+        'varchar' => ['type' => 'string'],
+        // SQL:1999
+        'binary large object' => ['type' => 'string', 'binary' => true],
+        'blob' => ['type' => 'string', 'binary' => true],
+        'boolean' => ['type' => 'bool'],
+        'char large object' => ['type' => 'string'],
+        'character large object' => ['type' => 'string'],
+        'clob' => ['type' => 'string'],
+        'national character large object' => ['type' => 'string'],
+        'nchar large object' => ['type' => 'string'],
+        'nclob' => ['type' => 'string'],
+        'time without time zone' => ['type' => 'string'],
+        'timestamp without time zone' => ['type' => 'string'],
+        // SQL:2003
+        'bigint' => ['type' => 'int', 'min' => '-9223372036854775808', 'max' => '9223372036854775807'],
+        // SQL:2008
+        'binary' => ['type' => 'string', 'binary' => true, 'exact' => true],
+        'binary varying' => ['type' => 'string', 'binary' => true],
+        'varbinary' => ['type' => 'string', 'binary' => true],
+        // SQL:2011
+        'json' => ['type' => 'string', 'exact' => false],
+        // SQL:2016
+        'jsonb' => ['type' => 'string', 'binary' => true],
+        'uuid' => ['type' => 'string', 'exact' => true],
+        // SQL:2019 (если поддерживается)
+        'geography' => ['type' => 'string', 'exact' => false], // пример для геопространственных данных
+        'geometry' => ['type' => 'string', 'exact' => false], // пример для геометрических данных
+    ];
 
-        if (isset($types[$type]))
-            return $types[$type];
-
-        return [];
-    }
+    return $types[$type] ?? [];
+}
 
     /**
      * List all of the tables in the database. Optionally, a LIKE string can
@@ -328,10 +342,11 @@ abstract class Kohana_Database
      *     // Get all user-related tables
      *     $tables = $db->list_tables('user%');
      *
-     * @param   string   $like  table to search for
-     * @return  array
+     * @param string|null $like table to search for
+     * @return array
      */
-    abstract public function list_tables($like = null);
+    abstract public function list_tables(?string $like = null): array;
+
     /**
      * Lists all of the columns in a table. Optionally, a LIKE string can be
      * used to search for specific fields.
@@ -345,22 +360,23 @@ abstract class Kohana_Database
      *     // Get the columns from a table that doesn't use the table prefix
      *     $columns = $db->list_columns('users', null, false);
      *
-     * @param   string  $table       table to get columns from
-     * @param   string  $like        column to search for
-     * @param   boolean $add_prefix  whether to add the table prefix automatically or not
-     * @return  array
+     * @param string $table table to get columns from
+     * @param string|null $like column to search for
+     * @param bool $add_prefix whether to add the table prefix automatically or not
+     * @return array
      */
-    abstract public function list_columns($table, $like = null, $add_prefix = true);
+    abstract public function list_columns(string $table, ?string $like = null, bool $add_prefix = true): array;
+
     /**
      * Extracts the text between parentheses, if any.
      *
      *     // Returns: ['CHAR', '6']
      *     list($type, $length) = $db->_parse_type('CHAR(6)');
      *
-     * @param   string  $type
-     * @return  array   list containing the type and length, if any
+     * @param string $type
+     * @return array list containing the type and length, if any
      */
-    protected function _parse_type($type)
+    protected function _parse_type(string $type): array
     {
         if (($open = strpos($type, '(')) === false) {
             // No length specified
@@ -384,9 +400,9 @@ abstract class Kohana_Database
      *
      *     $prefix = $db->table_prefix();
      *
-     * @return  string
+     * @return string
      */
-    public function table_prefix()
+    public function table_prefix(): string
     {
         return $this->_config['table_prefix'];
     }
@@ -403,11 +419,11 @@ abstract class Kohana_Database
      * [Database_Query] objects will be compiled and converted to a sub-query.
      * All other objects will be converted using the `__toString` method.
      *
-     * @param   mixed   $value  any value to quote
-     * @return  string
-     * @uses    Database::escape
+     * @param mixed $value any value to quote
+     * @return string
+     * @uses Database::escape
      */
-    public function quote($value)
+    public function quote($value): string
     {
         if ($value === null) {
             return 'NULL';
@@ -424,12 +440,12 @@ abstract class Kohana_Database
                 return $value->compile($this);
             } else {
                 // Convert the object to a string
-                return $this->quote((string) $value);
+                return $this->quote((string)$value);
             }
         } elseif (is_array($value)) {
             return '(' . implode(', ', array_map([$this, __FUNCTION__], $value)) . ')';
         } elseif (is_int($value)) {
-            return (int) $value;
+            return (string)$value;
         } elseif (is_float($value)) {
             // Convert to non-locale aware float to prevent possible commas
             return sprintf('%F', $value);
@@ -452,12 +468,12 @@ abstract class Kohana_Database
      * [Database_Query] objects will be compiled and converted to a sub-query.
      * All other objects will be converted using the `__toString` method.
      *
-     * @param   mixed   $column  column name or [column, alias]
-     * @return  string
-     * @uses    Database::quote_identifier
-     * @uses    Database::table_prefix
+     * @param mixed $column column name or [column, alias]
+     * @return string
+     * @uses Database::quote_identifier
+     * @uses Database::table_prefix
      */
-    public function quote_column($column)
+    public function quote_column($column): string
     {
         // Identifiers are escaped by repeating them
         $escaped_identifier = $this->_identifier . $this->_identifier;
@@ -475,7 +491,7 @@ abstract class Kohana_Database
             $column = $column->compile($this);
         } else {
             // Convert to a string
-            $column = (string) $column;
+            $column = (string)$column;
 
             $column = str_replace($this->_identifier, $escaped_identifier, $column);
 
@@ -492,7 +508,7 @@ abstract class Kohana_Database
                     $parts[$offset] = $prefix . $parts[$offset];
                 }
 
-                foreach ($parts as & $part) {
+                foreach ($parts as &$part) {
                     if ($part !== '*') {
                         // Quote each of the parts
                         $part = $this->_identifier . $part . $this->_identifier;
@@ -522,12 +538,12 @@ abstract class Kohana_Database
      * [Database_Query] objects will be compiled and converted to a sub-query.
      * All other objects will be converted using the `__toString` method.
      *
-     * @param   mixed   $table  table name or [table, alias]
-     * @return  string
-     * @uses    Database::quote_identifier
-     * @uses    Database::table_prefix
+     * @param mixed $table table name or [table, alias]
+     * @return string
+     * @uses Database::quote_identifier
+     * @uses Database::table_prefix
      */
-    public function quote_table($table)
+    public function quote_table($table): string
     {
         // Identifiers are escaped by repeating them
         $escaped_identifier = $this->_identifier . $this->_identifier;
@@ -545,7 +561,7 @@ abstract class Kohana_Database
             $table = $table->compile($this);
         } else {
             // Convert to a string
-            $table = (string) $table;
+            $table = (string)$table;
 
             $table = str_replace($this->_identifier, $escaped_identifier, $table);
 
@@ -560,7 +576,7 @@ abstract class Kohana_Database
                     $parts[$offset] = $prefix . $parts[$offset];
                 }
 
-                foreach ($parts as & $part) {
+                foreach ($parts as &$part) {
                     // Quote each of the parts
                     $part = $this->_identifier . $part . $this->_identifier;
                 }
@@ -588,10 +604,10 @@ abstract class Kohana_Database
      * [Database_Query] objects will be compiled and converted to a sub-query.
      * All other objects will be converted using the `__toString` method.
      *
-     * @param   mixed   $value  any identifier
-     * @return  string
+     * @param mixed $value any identifier
+     * @return string
      */
-    public function quote_identifier($value)
+    public function quote_identifier($value): string
     {
         // Identifiers are escaped by repeating them
         $escaped_identifier = $this->_identifier . $this->_identifier;
@@ -609,14 +625,14 @@ abstract class Kohana_Database
             $value = $value->compile($this);
         } else {
             // Convert to a string
-            $value = (string) $value;
+            $value = (string)$value;
 
             $value = str_replace($this->_identifier, $escaped_identifier, $value);
 
             if (strpos($value, '.') !== false) {
                 $parts = explode('.', $value);
 
-                foreach ($parts as & $part) {
+                foreach ($parts as &$part) {
                     // Quote each of the parts
                     $part = $this->_identifier . $part . $this->_identifier;
                 }
@@ -640,8 +656,8 @@ abstract class Kohana_Database
      *
      *     $value = $db->escape('any string');
      *
-     * @param   string   $value  value to quote
-     * @return  string
+     * @param string $value value to quote
+     * @return string
      */
-    abstract public function escape($value);
+    abstract public function escape(string $value): string;
 }
