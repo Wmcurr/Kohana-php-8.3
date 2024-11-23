@@ -1,16 +1,22 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Database Model base class.
  *
  * @package    Kohana/Database
  * @category   Models
- * @author     Kohana Team
- * @copyright  (c) 2008-2012 Kohana Team
- * @license    https://kohana.top/license
+ * @author     Kohana 2024
+ * @php 8.3
  */
 abstract class Kohana_Model_Database extends Model
 {
+    /**
+     * Database instance
+     */
+    protected Database $_db;
+
     /**
      * Create a new model instance. A [Database] instance or configuration
      * group name can be passed to the model. If no database is defined, the
@@ -19,42 +25,32 @@ abstract class Kohana_Model_Database extends Model
      *     $model = Model::factory($name);
      *
      * @param   string   $name  model name
-     * @param   mixed    $db    Database instance object or string
-     * @return  Model
+     * @param   Database|string|null $db    Database instance object or string
+     * @return  static
      */
-    public static function factory($name, $db = null)
+    public static function factory(string $name, Database|string|null $db = null): self
     {
         // Add the model prefix
         $class = 'Model_' . $name;
 
+        if (!class_exists($class)) {
+            throw new \InvalidArgumentException("Model class $class does not exist.");
+        }
+
         return new $class($db);
     }
-
-    // Database instance
-    protected $_db;
 
     /**
      * Loads the database.
      *
      *     $model = new Foo_Model($db);
      *
-     * @param   mixed  $db  Database instance object or string
-     * @return  void
+     * @param   Database|string|null $db  Database instance object or string
      */
-    public function __construct($db = null)
+    public function __construct(Database|string|null $db = null)
     {
-        if ($db) {
-            // Set the instance or name
-            $this->_db = $db;
-        } elseif (!$this->_db) {
-            // Use the default name
-            $this->_db = Database::$default;
-        }
-
-        if (is_string($this->_db)) {
-            // Load the database
-            $this->_db = Database::instance($this->_db);
-        }
+        $this->_db = $db instanceof Database
+            ? $db
+            : Database::instance($db ?? Database::$default);
     }
-
 }
