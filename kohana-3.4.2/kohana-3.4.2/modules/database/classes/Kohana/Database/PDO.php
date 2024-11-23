@@ -1,35 +1,42 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * PDO database connection.
  *
  * @package    Kohana/Database
  * @category   Drivers
- * @author     Kohana Team
- * @copyright  (c) 2008-2009 Kohana Team
- * @license    https://kohana.top/license
+ * @version    PHP 8.3, MySQL 8
  */
 class Kohana_Database_PDO extends Database
 {
-    // PDO uses no quoting for identifiers
-    protected $_identifier = '';
+    // Константы для часто используемых значений
+    private const DEFAULT_CHARSET = 'utf8';
+    private const FETCH_MODE_ASSOC = PDO::FETCH_ASSOC;
 
-    public function __construct($name, array $config)
+    // Типизированные свойства
+    protected string $_identifier = '';
+
+    // Кэш для таблиц и колонок
+    private static array $tables_cache = [];
+    private static array $columns_cache = [];
+
+    public function __construct(string $name, array $config)
     {
         parent::__construct($name, $config);
 
         if (isset($this->_config['identifier'])) {
-            // Allow the identifier to be overloaded per-connection
             $this->_identifier = (string) $this->_config['identifier'];
         }
     }
 
-    public function connect()
+    public function connect(): void
     {
-        if ($this->_connection)
+        if ($this->_connection) {
             return;
+        }
 
-        // Extract the connection parameters, adding required variabels
         extract($this->_config['connection'] + [
             'dsn' => '',
             'username' => null,
@@ -37,114 +44,106 @@ class Kohana_Database_PDO extends Database
             'persistent' => false,
         ]);
 
-        // Clear the connection parameters for security
         unset($this->_config['connection']);
 
-        // Force PDO to use exceptions for all errors
-        $options[PDO::ATTR_ERRMODE] = PDO::ERRMODE_EXCEPTION;
+        $options = [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ];
 
         if (!empty($persistent)) {
-            // Make the connection persistent
             $options[PDO::ATTR_PERSISTENT] = true;
         }
 
         try {
-            // Create a new PDO connection
             $this->_connection = new PDO($dsn, $username, $password, $options);
         } catch (PDOException $e) {
             throw new Database_Exception(':error', [':error' => $e->getMessage()], $e->getCode());
         }
 
         if (!empty($this->_config['charset'])) {
-            // Set the character set
             $this->set_charset($this->_config['charset']);
         }
     }
 
     /**
-     * Create or redefine a SQL aggregate function.
-     *
-     * [!!] Works only with SQLite
-     *
-     * @link http://php.net/manual/function.pdo-sqlitecreateaggregate
-     *
-     * @param   string      $name       Name of the SQL function to be created or redefined
-     * @param   callback    $step       Called for each row of a result set
-     * @param   callback    $final      Called after all rows of a result set have been processed
-     * @param   integer     $arguments  Number of arguments that the SQL function takes
-     *
-     * @return  boolean
+     * @param string $name
+     * @param callable $step
+     * @param callable $final
+     * @param int $arguments
+     * @return bool
      */
-    public function create_aggregate($name, $step, $final, $arguments = -1)
+    public function create_aggregate(string $name, callable $step, callable $final, int $arguments = -1): bool
     {
         $this->_connection or $this->connect();
 
-        return $this->_connection->sqliteCreateAggregate(
-                $name, $step, $final, $arguments
-        );
+        return $this->_connection->sqliteCreateAggregate($name, $step, $final, $arguments);
     }
 
     /**
-     * Create or redefine a SQL function.
-     *
-     * [!!] Works only with SQLite
-     *
-     * @link http://php.net/manual/function.pdo-sqlitecreatefunction
-     *
-     * @param   string      $name       Name of the SQL function to be created or redefined
-     * @param   callback    $callback   Callback which implements the SQL function
-     * @param   integer     $arguments  Number of arguments that the SQL function takes
-     *
-     * @return  boolean
+     * @param string $name
+     * @param callable $callback
+     * @param int $arguments
+     * @return bool
      */
-    public function create_function($name, $callback, $arguments = -1)
+    public function create_function(string $name, callable $callback, int $arguments = -1): bool
     {
         $this->_connection or $this->connect();
 
-        return $this->_connection->sqliteCreateFunction(
-                $name, $callback, $arguments
-        );
+        return $this->_connection->sqliteCreateFunction($name, $callback, $arguments);
     }
 
-    public function disconnect()
+    /**
+     * Disconnect from the database
+     *
+     * @return bool
+     */
+    public function disconnect(): bool
     {
-        // Destroy the PDO object
         $this->_connection = null;
-
         return parent::disconnect();
     }
 
-    public function set_charset($charset)
+    /**
+     * Set the character set
+     *
+     * @param string $charset
+     * @return void
+     */
+    public function set_charset(string $charset): void
     {
-        // Make sure the database is connected
-        $this->_connection OR $this->connect();
-
-        // This SQL-92 syntax is not supported by all drivers
+        $this->_connection or $this->connect();
         $this->_connection->exec('SET NAMES ' . $this->quote($charset));
     }
 
-    public function query($type, $sql, $as_object = false, array $params = null)
+    /**
+     * Execute a query and return the result
+     *
+     * @param int $type
+     * @param string $sql
+     * @param bool|string $as_object
+     * @param array|null $params
+     * @return mixed
+     * @throws Database_Exception
+     */
+        public function query(int $type, string $sql, $as_object = false, ?array $params = null): mixed
     {
-        // Make sure the database is connected
         $this->_connection or $this->connect();
 
         if (Kohana::$profiling) {
-            // Benchmark this query for the current instance
             $benchmark = Profiler::start("Database ({$this->_instance})", $sql);
         }
 
         try {
-            $result = $this->_connection->query($sql);
+            $stmt = $params ? $this->_connection->prepare($sql) : $this->_connection->query($sql);
+            $params ? $stmt->execute($params) : null;
         } catch (Exception $e) {
             if (isset($benchmark)) {
-                // This benchmark is worthless
                 Profiler::delete($benchmark);
             }
-
-            // Convert the exception in a database exception
             throw new Database_Exception(':error [ :query ]', [
-            ':error' => $e->getMessage(),
-            ':query' => $sql
+                ':error' => $e->getMessage(),
+                ':query' => $sql
             ], $e->getCode());
         }
 
@@ -152,75 +151,193 @@ class Kohana_Database_PDO extends Database
             Profiler::stop($benchmark);
         }
 
-        // Set the last query
         $this->last_query = $sql;
 
-        if ($type === Database::SELECT) {
-            // Convert the result into an array, as PDOStatement::rowCount is not reliable
-            if ($as_object === false) {
-                $result->setFetchMode(PDO::FETCH_ASSOC);
-            } elseif (is_string($as_object)) {
-                $result->setFetchMode(PDO::FETCH_CLASS, $as_object, $params);
-            } else {
-                $result->setFetchMode(PDO::FETCH_CLASS, 'stdClass');
-            }
-
-            $result = $result->fetchAll();
-
-            // Return an iterator of results
-            return new Database_Result_Cached($result, $sql, $as_object, $params);
-        } elseif ($type === Database::INSERT) {
-            // Return a list of insert id and rows created
-            return [
+        return match ($type) {
+            Database::SELECT => $this->fetchResult($stmt, $as_object, $params, $sql),
+            Database::INSERT => [
                 $this->_connection->lastInsertId(),
-                $result->rowCount(),
-            ];
-        } else {
-            // Return the number of rows affected
-            return $result->rowCount();
-        }
+                $stmt->rowCount(),
+            ],
+            default => $stmt->rowCount(),
+        };
     }
 
-    public function begin($mode = null)
+    /**
+     * Fetch the result based on type
+     *
+     * @param PDOStatement $stmt
+     * @param bool|string $as_object
+     * @param array|null $params
+     * @param string $sql
+     * @return Database_Result_Cached
+     */
+    private function fetchResult(PDOStatement $stmt, bool|string $as_object, ?array $params, string $sql): Database_Result_Cached
     {
-        // Make sure the database is connected
-        $this->_connection or $this->connect();
+        if ($as_object === false) {
+            $stmt->setFetchMode(self::FETCH_MODE_ASSOC);
+        } elseif (is_string($as_object)) {
+            $stmt->setFetchMode(PDO::FETCH_CLASS, $as_object, $params);
+        } else {
+            $stmt->setFetchMode(PDO::FETCH_CLASS, 'stdClass');
+        }
 
+        $result = $stmt->fetchAll();
+
+        return new Database_Result_Cached($result, $sql, $as_object, $params);
+    }
+
+    /**
+     * Start a transaction
+     *
+     * @param string|null $mode
+     * @return bool
+     */
+    public function begin(?string $mode = null): bool
+    {
+        $this->_connection or $this->connect();
         return $this->_connection->beginTransaction();
     }
 
-    public function commit()
+    /**
+     * Commit the transaction
+     *
+     * @return bool
+     */
+    public function commit(): bool
     {
-        // Make sure the database is connected
         $this->_connection or $this->connect();
-
         return $this->_connection->commit();
     }
 
-    public function rollback()
+    /**
+     * Rollback the transaction
+     *
+     * @return bool
+     */
+    public function rollback(): bool
     {
-        // Make sure the database is connected
         $this->_connection or $this->connect();
-
         return $this->_connection->rollBack();
     }
 
-    public function list_tables($like = null)
+    /**
+     * Savepoint in transaction
+     *
+     * @param string $name
+     * @return bool
+     */
+    public function savepoint(string $name): bool
     {
-        throw new Kohana_Exception('Database method :method is not supported by :class', [':method' => __FUNCTION__, ':class' => __CLASS__]);
+        $this->_connection or $this->connect();
+        return $this->_connection->exec("SAVEPOINT {$name}");
     }
 
-    public function list_columns($table, $like = null, $add_prefix = true)
+    /**
+     * List all tables
+     *
+     * @param string|null $like
+     * @return array
+     */
+    public function list_tables(?string $like = null): array
     {
-        throw new Kohana_Exception('Database method :method is not supported by :class', [':method' => __FUNCTION__, ':class' => __CLASS__]);
-    }
+        if (isset(self::$tables_cache[$like])) {
+            return self::$tables_cache[$like];
+        }
 
-    public function escape($value)
-    {
-        // Make sure the database is connected
         $this->_connection or $this->connect();
 
-        return $this->_connection->quote($value);
+        $sql = 'SHOW TABLES';
+
+        if ($like !== null) {
+            $sql .= ' LIKE ' . $this->quote($like);
+        }
+
+        $result = $this->query(Database::SELECT, $sql, false);
+
+        $tables = [];
+        foreach ($result as $row) {
+            $tables[] = reset($row);
+        }
+
+        self::$tables_cache[$like] = $tables;
+        return $tables;
     }
 
+    /**
+     * List all columns in a table
+     *
+     * @param string $table
+     * @param string|null $like
+     * @param bool $add_prefix
+     * @return array
+     */
+    public function list_columns(string $table, ?string $like = null, bool $add_prefix = true): array
+    {
+        $cache_key = $table . $like;
+        if (isset(self::$columns_cache[$cache_key])) {
+            return self::$columns_cache[$cache_key];
+        }
+
+        $this->_connection or $this->connect();
+
+        if ($add_prefix) {
+            $table = $this->table_prefix() . $table;
+        }
+
+        $sql = 'SHOW COLUMNS FROM ' . $this->quote_table($table);
+
+        if ($like !== null) {
+            $sql .= ' LIKE ' . $this->quote($like);
+        }
+
+        $result = $this->query(Database::SELECT, $sql, false);
+
+        $columns = [];
+        foreach ($result as $row) {
+            $column = [
+                'name' => $row['Field'],
+                'type' => $this->mysql_datatype($row['Type']),
+                'is_nullable' => ($row['Null'] === 'YES'),
+                'key' => $row['Key'],
+                'default' => $row['Default'],
+                'extra' => $row['Extra'],
+            ];
+            $columns[$row['Field']] = $column;
+        }
+
+        self::$columns_cache[$cache_key] = $columns;
+        return $columns;
+    }
+
+    /**
+     * Parse MySQL data type
+     *
+     * @param string $type
+     * @return array
+     */
+    public function mysql_datatype(string $type): array
+    {
+        $types = [];
+        if (preg_match('/^([a-z]+)(?:\(([^)]+)\))?/', $type, $matches)) {
+            $types['type'] = $matches[1];
+            if (isset($matches[2])) {
+                $types['length'] = $matches[2];
+            }
+        }
+
+        return $types;
+    }
+
+    /**
+     * Escape a value for use in a query
+     *
+     * @param string $value
+     * @return string
+     */
+    public function escape(string $value): string
+    {
+        $this->_connection or $this->connect();
+        return $this->_connection->quote($value);
+    }
 }
