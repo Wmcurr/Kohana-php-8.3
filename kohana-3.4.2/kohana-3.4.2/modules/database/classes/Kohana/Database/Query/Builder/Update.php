@@ -1,45 +1,43 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Database query builder for UPDATE statements. See [Query Builder](/database/query/builder) for usage and examples.
  *
  * @package    Kohana/Database
  * @category   Query
- * @author     Kohana Team
- * @copyright  (c) 2008-2009 Kohana Team
- * @license    https://kohana.top/license
  */
 class Kohana_Database_Query_Builder_Update extends Database_Query_Builder_Where
 {
     // UPDATE ...
-    protected $_table;
+    protected string|array|Database_Expression $_table;
     // SET ...
-    protected $_set = [];
+    protected array $_set = [];
 
     /**
-     * Set the table for a update.
+     * Set the table for an update.
      *
-     * @param   mixed  $table  table name or [$table, $alias] or object
-     * @return  void
+     * @param string|array|Database_Expression|null $table Table name or [$table, $alias] or object.
      */
-    public function __construct($table = null)
+    public function __construct(string|array|Database_Expression $table = null)
     {
-        if ($table) {
-            // Set the inital table name
+        if ($table !== null) {
+            // Set the initial table name
             $this->_table = $table;
         }
 
-        // Start the query with no SQL
-        return parent::__construct(Database::UPDATE, '');
+        // Start the query with the correct type and no SQL
+        parent::__construct(QueryType::UPDATE, '');
     }
 
     /**
      * Sets the table to update.
      *
-     * @param   mixed  $table  table name or [$table, $alias] or object
-     * @return  $this
+     * @param string|array|Database_Expression $table Table name or [$table, $alias] or object.
+     * @return $this
      */
-    public function table($table)
+    public function table(string|array|Database_Expression $table): self
     {
         $this->_table = $table;
 
@@ -49,10 +47,10 @@ class Kohana_Database_Query_Builder_Update extends Database_Query_Builder_Where
     /**
      * Set the values to update with an associative array.
      *
-     * @param   array   $pairs  associative (column => value) list
-     * @return  $this
+     * @param array $pairs Associative (column => value) list.
+     * @return $this
      */
-    public function set(array $pairs)
+    public function set(array $pairs): self
     {
         foreach ($pairs as $column => $value) {
             $this->_set[] = [$column, $value];
@@ -64,11 +62,11 @@ class Kohana_Database_Query_Builder_Update extends Database_Query_Builder_Where
     /**
      * Set the value of a single column.
      *
-     * @param   mixed  $column  table name or [$table, $alias] or object
-     * @param   mixed  $value   column value
-     * @return  $this
+     * @param string|array|Database_Expression $column Table name or [$table, $alias] or object.
+     * @param mixed                            $value  Column value.
+     * @return $this
      */
-    public function value($column, $value)
+    public function value(string|array|Database_Expression $column, mixed $value): self
     {
         $this->_set[] = [$column, $value];
 
@@ -76,12 +74,66 @@ class Kohana_Database_Query_Builder_Update extends Database_Query_Builder_Where
     }
 
     /**
+     * Increment a column's value by a specified amount.
+     *
+     * @param string $column Column name.
+     * @param int    $amount Amount to increment.
+     * @return $this
+     */
+    public function increment(string $column, int $amount = 1): self
+    {
+        $this->_set[] = [$column, new Database_Expression("$column + $amount")];
+        return $this;
+    }
+
+    /**
+     * Decrement a column's value by a specified amount.
+     *
+     * @param string $column Column name.
+     * @param int    $amount Amount to decrement.
+     * @return $this
+     */
+    public function decrement(string $column, int $amount = 1): self
+    {
+        $this->_set[] = [$column, new Database_Expression("$column - $amount")];
+        return $this;
+    }
+
+    /**
+     * Update existing record or insert new if not exists.
+     *
+     * @param array $conditions Conditions to check for existing records.
+     * @param array $values     Values to update or insert.
+     * @param Database $db       Database instance.
+     * @return void
+     */
+    public function updateOrInsert(array $conditions, array $values, Database $db): void
+    {
+        $exists = (new Database_Query_Builder_Select)
+            ->from($this->_table)
+            ->where($conditions)
+            ->execute($db)
+            ->count();
+
+        if ($exists) {
+            $this->set($values)
+                ->where($conditions)
+                ->execute($db);
+        } else {
+            (new Database_Query_Builder_Insert($this->_table))
+                ->columns(array_keys($values))
+                ->values(array_values($values))
+                ->execute($db);
+        }
+    }
+
+    /**
      * Compile the SQL query and return it.
      *
-     * @param   mixed  $db  Database instance or name of instance
-     * @return  string
+     * @param mixed $db Database instance or name of instance.
+     * @return string
      */
-    public function compile($db = null)
+    public function compile(mixed $db = null): string
     {
         if (!is_object($db)) {
             // Get the database instance
@@ -109,24 +161,23 @@ class Kohana_Database_Query_Builder_Update extends Database_Query_Builder_Where
             $query .= ' LIMIT ' . $this->_limit;
         }
 
-        $this->_sql = $query;
-
-        return parent::compile($db);
+        return $query;
     }
 
-    public function reset()
+    /**
+     * Reset the builder to its initial state.
+     *
+     * @return $this
+     */
+    public function reset(): self
     {
-        $this->_table = null;
-
-        $this->_set = $this->_where = [];
-
+        $this->_table = '';
+        $this->_set = [];
+        $this->_where = [];
+        $this->_order_by = [];
         $this->_limit = null;
-
         $this->_parameters = [];
-
-        $this->_sql = null;
 
         return $this;
     }
-
 }
