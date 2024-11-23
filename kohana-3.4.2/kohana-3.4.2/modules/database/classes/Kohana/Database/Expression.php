@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Database expressions can be used to add unescaped SQL fragments to a
  * [Database_Query_Builder] object.
@@ -33,7 +35,7 @@ class Kohana_Database_Expression
      * @param   array   $parameters unquoted parameter values
      * @return  void
      */
-    public function __construct($value, $parameters = [])
+    public function __construct(string $value, array $parameters = [])
     {
         // Set the expression string
         $this->_value = $value;
@@ -47,7 +49,7 @@ class Kohana_Database_Expression
      * @param   mixed   $var    variable to use
      * @return  $this
      */
-    public function bind($param, & $var)
+    public function bind(string $param, & $var): self
     {
         $this->_parameters[$param] = & $var;
 
@@ -61,7 +63,7 @@ class Kohana_Database_Expression
      * @param   mixed   $value  value to use
      * @return  $this
      */
-    public function param($param, $value)
+    public function param(string $param, mixed $value): self
     {
         $this->_parameters[$param] = $value;
 
@@ -74,7 +76,7 @@ class Kohana_Database_Expression
      * @param   array   $params list of parameter values
      * @return  $this
      */
-    public function parameters(array $params)
+    public function parameters(array $params): self
     {
         $this->_parameters = $params + $this->_parameters;
 
@@ -88,7 +90,7 @@ class Kohana_Database_Expression
      *
      * @return  string
      */
-    public function value()
+    public function value(): string
     {
         return (string) $this->_value;
     }
@@ -101,7 +103,7 @@ class Kohana_Database_Expression
      * @return  string
      * @uses    Database_Expression::value
      */
-    public function __toString()
+    public function __toString(): string
     {
         return $this->value();
     }
@@ -110,10 +112,10 @@ class Kohana_Database_Expression
      * Compile the SQL expression and return it. Replaces any parameters with
      * their given values.
      *
-     * @param   mixed    Database instance or name of instance
+     * @param   mixed    $db Database instance or name of instance
      * @return  string
      */
-    public function compile($db = null)
+    public function compile(mixed $db = null): string
     {
         if (!is_object($db)) {
             // Get the database instance
@@ -132,5 +134,4 @@ class Kohana_Database_Expression
 
         return $value;
     }
-
 }
