@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Provides a shortcut to get Database related objects for [making queries](../database/query).
  *
@@ -16,9 +18,6 @@
  *
  * @package    Kohana/Database
  * @category   Base
- * @author     Kohana Team
- * @copyright  (c) 2009 Kohana Team
- * @license    https://kohana.top/license
  */
 class Kohana_DB
 {
@@ -26,21 +25,21 @@ class Kohana_DB
      * Create a new [Database_Query] of the given type.
      *
      *     // Create a new SELECT query
-     *     $query = DB::query(Database::SELECT, 'SELECT * FROM users');
+     *     $query = DB::query(QueryType::SELECT, 'SELECT * FROM users');
      *
      *     // Create a new DELETE query
-     *     $query = DB::query(Database::DELETE, 'DELETE FROM users WHERE id = 5');
+     *     $query = DB::query(QueryType::DELETE, 'DELETE FROM users WHERE id = 5');
      *
      * Specifying the type changes the returned result. When using
-     * `Database::SELECT`, a [Database_Query_Result] will be returned.
-     * `Database::INSERT` queries will return the insert id and number of rows.
+     * `QueryType::SELECT`, a [Database_Query_Result] will be returned.
+     * `QueryType::INSERT` queries will return the insert id and number of rows.
      * For all other queries, the number of affected rows is returned.
      *
-     * @param   integer  $type  type: Database::SELECT, Database::UPDATE, etc
-     * @param   string   $sql   SQL statement
-     * @return  Database_Query
+     * @param QueryType $type  type: QueryType::SELECT, QueryType::UPDATE, etc.
+     * @param string    $sql   SQL statement
+     * @return Database_Query
      */
-    public static function query($type, $sql)
+    public static function query(QueryType $type, string $sql): Database_Query
     {
         return new Database_Query($type, $sql);
     }
@@ -55,12 +54,12 @@ class Kohana_DB
      *     // SELECT id AS user_id
      *     $query = DB::select(['id', 'user_id']);
      *
-     * @param   mixed   $columns  column name or [$column, $alias] or object
-     * @return  Database_Query_Builder_Select
+     * @param mixed ...$columns Column name or [$column, $alias] or object.
+     * @return Database_Query_Builder_Select
      */
-    public static function select($columns = null)
+    public static function select(...$columns): Database_Query_Builder_Select
     {
-        return new Database_Query_Builder_Select(func_get_args());
+        return new Database_Query_Builder_Select($columns);
     }
 
     /**
@@ -69,10 +68,10 @@ class Kohana_DB
      *     // SELECT id, username
      *     $query = DB::select_array(['id', 'username']);
      *
-     * @param   array   $columns  columns to select
-     * @return  Database_Query_Builder_Select
+     * @param array $columns Columns to select.
+     * @return Database_Query_Builder_Select
      */
-    public static function select_array(array $columns = null)
+    public static function select_array(array $columns = []): Database_Query_Builder_Select
     {
         return new Database_Query_Builder_Select($columns);
     }
@@ -83,11 +82,11 @@ class Kohana_DB
      *     // INSERT INTO users (id, username)
      *     $query = DB::insert('users', ['id', 'username']);
      *
-     * @param   string  $table    table to insert into
-     * @param   array   $columns  list of column names or [$column, $alias] or object
-     * @return  Database_Query_Builder_Insert
+     * @param string|null $table   Table to insert into.
+     * @param array|null  $columns List of column names or [$column, $alias] or object.
+     * @return Database_Query_Builder_Insert
      */
-    public static function insert($table = null, array $columns = null)
+    public static function insert(?string $table = null, ?array $columns = null): Database_Query_Builder_Insert
     {
         return new Database_Query_Builder_Insert($table, $columns);
     }
@@ -98,10 +97,10 @@ class Kohana_DB
      *     // UPDATE users
      *     $query = DB::update('users');
      *
-     * @param   string  $table  table to update
-     * @return  Database_Query_Builder_Update
+     * @param string|null $table Table to update.
+     * @return Database_Query_Builder_Update
      */
-    public static function update($table = null)
+    public static function update(?string $table = null): Database_Query_Builder_Update
     {
         return new Database_Query_Builder_Update($table);
     }
@@ -112,10 +111,10 @@ class Kohana_DB
      *     // DELETE FROM users
      *     $query = DB::delete('users');
      *
-     * @param   string  $table  table to delete from
-     * @return  Database_Query_Builder_Delete
+     * @param string|null $table Table to delete from.
+     * @return Database_Query_Builder_Delete
      */
-    public static function delete($table = null)
+    public static function delete(?string $table = null): Database_Query_Builder_Delete
     {
         return new Database_Query_Builder_Delete($table);
     }
@@ -128,13 +127,12 @@ class Kohana_DB
      *     $query = DB::update('users')->set(['login_count' => DB::expr('login_count + 1')])->where('id', '=', $id);
      *     $users = ORM::factory('user')->where(DB::expr("BINARY `hash`"), '=', $hash)->find();
      *
-     * @param   string  $string  expression
-     * @param   array   parameters
-     * @return  Database_Expression
+     * @param string $string Expression string.
+     * @param array  $parameters Unquoted parameter values.
+     * @return Database_Expression
      */
-    public static function expr($string, $parameters = [])
+    public static function expr(string $string, array $parameters = []): Database_Expression
     {
         return new Database_Expression($string, $parameters);
     }
-
 }
