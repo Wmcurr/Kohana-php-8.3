@@ -1,85 +1,100 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Database-based session class.
  *
  * Sample schema:
  *
- *     CREATE TABLE  `sessions` (
- *         `session_id` VARCHAR( 24 ) NOT NULL,
- *         `last_active` INT UNSIGNED NOT NULL,
+ *     CREATE TABLE `sessions` (
+ *         `session_id` VARCHAR(255) NOT NULL,
+ *         `last_active` BIGINT UNSIGNED NOT NULL, -- Хранение времени с миллисекундами
  *         `contents` TEXT NOT NULL,
- *         PRIMARY KEY ( `session_id` ),
- *         INDEX ( `last_active` )
- *     ) ENGINE = MYISAM ;
+ *         PRIMARY KEY (`session_id`),
+ *         INDEX (`last_active`)
+ *     ) ENGINE = InnoDB;
  *
  * @package    Kohana/Database
  * @category   Session
- * @author     Kohana Team
- * @copyright  (c) 2008-2009 Kohana Team
- * @license    https://kohana.top/license
  */
 class Kohana_Session_Database extends Session
 {
     // Database instance
-    protected $_db;
+    protected Database $_db;
     // Database table name
-    protected $_table = 'sessions';
+    protected string $_table = 'sessions';
     // Database column names
-    protected $_columns = [
+    protected array $_columns = [
         'session_id' => 'session_id',
         'last_active' => 'last_active',
         'contents' => 'contents'
     ];
     // Garbage collection requests
-    protected $_gc = 500;
+    protected int $_gc = 500;
     // The current session id
-    protected $_session_id;
+    protected ?string $_session_id = null;
     // The old session id
-    protected $_update_id;
+    protected ?string $_update_id = null;
 
-    public function __construct(array $config = null, $id = null)
-    {
-        if (!isset($config['group'])) {
-            // Use the default group
-            $config['group'] = Database::$default;
-        }
-
-        // Load the database
-        $this->_db = Database::instance($config['group']);
-
-        if (isset($config['table'])) {
-            // Set the table name
-            $this->_table = (string) $config['table'];
-        }
-
-        if (isset($config['gc'])) {
-            // Set the gc chance
-            $this->_gc = (int) $config['gc'];
-        }
-
-        if (isset($config['columns'])) {
-            // Overload column names
-            $this->_columns = $config['columns'];
-        }
+    /**
+     * Constructs the database session class.
+     *
+     * @param array $config Configuration settings for the session.
+     * @param string|null $id Session ID.
+     * @param string $group Database configuration group.
+     * @param string $table Table name to store sessions.
+     * @param int $gc Number of requests before garbage collection is invoked.
+     * @param array $columns Custom column names in the session table.
+     */
+    public function __construct(
+        array $config = [],
+        ?string $id = null,
+        string $group = Database::$default,
+        string $table = 'sessions',
+        int $gc = 500,
+        array $columns = [
+            'session_id' => 'session_id',
+            'last_active' => 'last_active',
+            'contents' => 'contents'
+        ]
+    ) {
+        // Использование именованных аргументов для улучшенной читаемости
+        $this->_db = Database::instance($group);
+        $this->_table = $table;
+        $this->_gc = $gc;
+        $this->_columns = $columns;
 
         parent::__construct($config, $id);
 
-        if (mt_rand(0, $this->_gc) === $this->_gc) {
-            // Run garbage collection
-            // This will average out to run once every X requests
+        if (random_int(0, $this->_gc) === $this->_gc) {
+            // Run garbage collection on average every $_gc requests
             $this->_gc();
         }
     }
 
-    public function id()
+    /**
+     * Returns the current session ID.
+     *
+     * @return string|null The current session ID or null if not set.
+     */
+    public function id(): ?string
     {
         return $this->_session_id;
     }
 
-    protected function _read($id = null)
+    /**
+     * Reads the session data from the database.
+     *
+     * @param string|null $id The session ID.
+     * @return string|null The session data or null if not found.
+     */
+    protected function _read(?string $id = null): ?string
     {
-        if ($id OR $id = Cookie::get($this->_name)) {
+        // Использование null-safe оператора
+        $id ??= Cookie::get($this->_name)?->getValue();
+
+        if ($id !== null) {
             $result = DB::select([$this->_columns['contents'], 'contents'])
                 ->from($this->_table)
                 ->where($this->_columns['session_id'], '=', ':id')
@@ -87,24 +102,23 @@ class Kohana_Session_Database extends Session
                 ->param(':id', $id)
                 ->execute($this->_db);
 
-            if ($result->count()) {
-                // Set the current session id
+            if ($result->count() > 0) {
                 $this->_session_id = $this->_update_id = $id;
-
-                // Return the contents
-                return $result->get('contents');
+                return (string)$result->get('contents');
             }
         }
 
-        // Create a new session id
         $this->_regenerate();
-
         return null;
     }
 
-    protected function _regenerate()
+    /**
+     * Regenerates the session ID to a new unique value.
+     *
+     * @return string The new session ID.
+     */
+    protected function _regenerate(): string
     {
-        // Create the query to find an ID
         $query = DB::select($this->_columns['session_id'])
             ->from($this->_table)
             ->where($this->_columns['session_id'], '=', ':id')
@@ -112,107 +126,100 @@ class Kohana_Session_Database extends Session
             ->bind(':id', $id);
 
         do {
-            // Create a new session id
-            $id = str_replace('.', '-', uniqid(null, true));
-
-            // Get the the id from the database
+            $id = str_replace('.', '-', uniqid('', true));
             $result = $query->execute($this->_db);
-        } while ($result->count());
+        } while ($result->count() > 0);
 
         return $this->_session_id = $id;
     }
 
-    protected function _write()
+    /**
+     * Writes the session data to the database.
+     *
+     * @return bool True if the session was successfully written, false otherwise.
+     */
+    protected function _write(): bool
     {
-        if ($this->_update_id === null) {
-            // Insert a new row
-            $query = DB::insert($this->_table, $this->_columns)
-                ->values([':new_id', ':active', ':contents']);
-        } else {
-            // Update the row
-            $query = DB::update($this->_table)
-                ->value($this->_columns['last_active'], ':active')
-                ->value($this->_columns['contents'], ':contents')
-                ->where($this->_columns['session_id'], '=', ':old_id');
+        $query = match(true) {
+            $this->_update_id === null => DB::insert($this->_table, array_values($this->_columns))
+                                            ->values([
+                                                ':new_id', 
+                                                ':active', 
+                                                ':contents'
+                                            ]),
+            $this->_update_id !== $this->_session_id => DB::update($this->_table)
+                                            ->set([$this->_columns['last_active'] => ':active'])
+                                            ->set([$this->_columns['contents'] => ':contents'])
+                                            ->set([$this->_columns['session_id'] => ':new_id'])
+                                            ->where($this->_columns['session_id'], '=', ':old_id'),
+            default => DB::update($this->_table)
+                                            ->set([$this->_columns['last_active'] => ':active'])
+                                            ->set([$this->_columns['contents'] => ':contents'])
+                                            ->where($this->_columns['session_id'], '=', ':old_id')
+        };
 
-            if ($this->_update_id !== $this->_session_id) {
-                // Also update the session id
-                $query->value($this->_columns['session_id'], ':new_id');
-            }
-        }
+        $query->parameters([
+            ':new_id' => $this->_session_id,
+            ':old_id' => $this->_update_id,
+            ':active' => round(microtime(true) * 1000), // Хранение времени в миллисекундах
+            ':contents' => $this->__toString()
+        ])->execute($this->_db);
 
-        $query
-            ->param(':new_id', $this->_session_id)
-            ->param(':old_id', $this->_update_id)
-            ->param(':active', $this->_data['last_active'])
-            ->param(':contents', $this->__toString());
-
-        // Execute the query
-        $query->execute($this->_db);
-
-        // The update and the session id are now the same
         $this->_update_id = $this->_session_id;
-
-        // Update the cookie with the new session id
         Cookie::set($this->_name, $this->_session_id, $this->_lifetime);
 
         return true;
     }
 
     /**
-     * @return  bool
+     * Regenerates the session ID, restarting the session.
+     *
+     * @return bool True if the session was successfully restarted.
      */
-    protected function _restart()
+    protected function _restart(): bool
     {
         $this->_regenerate();
-
         return true;
     }
 
-    protected function _destroy()
+    /**
+     * Destroys the current session, deleting it from the database.
+     *
+     * @return bool True if the session was successfully destroyed, false otherwise.
+     */
+    protected function _destroy(): bool
     {
         if ($this->_update_id === null) {
-            // Session has not been created yet
             return true;
         }
 
-        // Delete the current session
-        $query = DB::delete($this->_table)
-            ->where($this->_columns['session_id'], '=', ':id')
-            ->param(':id', $this->_update_id);
-
         try {
-            // Execute the query
-            $query->execute($this->_db);
+            DB::delete($this->_table)
+                ->where($this->_columns['session_id'], '=', ':id')
+                ->param(':id', $this->_update_id)
+                ->execute($this->_db);
 
-            // Delete the old session id
             $this->_update_id = null;
-
-            // Delete the cookie
             Cookie::delete($this->_name);
         } catch (Exception $e) {
-            // An error occurred, the session has not been deleted
             return false;
         }
 
         return true;
     }
 
-    protected function _gc()
+    /**
+     * Performs garbage collection, removing expired sessions from the database.
+     *
+     * @return void
+     */
+    protected function _gc(): void
     {
-        if ($this->_lifetime) {
-            // Expire sessions when their lifetime is up
-            $expires = $this->_lifetime;
-        } else {
-            // Expire sessions after one month
-            $expires = Date::MONTH;
-        }
+        $expires = $this->_lifetime ?? Date::MONTH;
 
-        // Delete all sessions that have expired
         DB::delete($this->_table)
             ->where($this->_columns['last_active'], '<', ':time')
-            ->param(':time', time() - $expires)
+            ->param(':time', round(microtime(true) * 1000) - $expires * 1000)
             ->execute($this->_db);
     }
-
 }
