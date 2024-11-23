@@ -1,37 +1,59 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * MySQLi database connection.
  *
- * @package    Kohana/Database
- * @category   Drivers
- * @author     Kohana Team
- * @copyright  (c) 2008-2009 Kohana Team
- * @license    https://kohana.top/license
+ * Provides MySQLi specific database functions for Kohana framework.
+ * Updated to comply with modern PHP and MySQL standards.
  */
 class Kohana_Database_MySQLi extends Database
 {
-    // Database in use by each connection
-    protected static $_current_databases = [];
-    // Use SET NAMES to set the character set
-    protected static $_set_names;
-    // Identifier for this connection within the PHP driver
-    protected $_connection_id;
-    // MySQL uses a backtick for identifiers
-    protected $_identifier = '`';
+    /**
+     * @var array Database in use by each connection
+     */
+    protected static array $_current_databases = [];
 
-    public function connect()
+    /**
+     * @var bool|null Use SET NAMES to set the character set
+     */
+    protected static ?bool $_set_names = null;
+
+    /**
+     * @var string Identifier for this connection within the PHP driver
+     */
+    protected string $_connection_id;
+
+    /**
+     * @var string MySQL uses a backtick for identifiers
+     */
+    protected string $_identifier = '`';
+
+    /**
+     * @var array Cache for list_tables and list_columns
+     */
+    protected static array $_table_cache = [];
+    protected static array $_column_cache = [];
+
+    /**
+     * Connects to the MySQLi database.
+     *
+     * @return void
+     * @throws Database_Exception If connection fails
+     */
+    public function connect(): void
     {
-        if ($this->_connection)
+        if ($this->_connection) {
             return;
+        }
 
         if (Database_MySQLi::$_set_names === null) {
-            // Determine if we can use mysqli_set_charset(), which is only
-            // available on PHP 5.2.3+ when compiled against MySQL 5.0+
+            // Determine if we can use mysqli_set_charset(), available in modern versions of PHP and MySQL.
             Database_MySQLi::$_set_names = !function_exists('mysqli_set_charset');
         }
 
-        // Extract the connection parameters, adding required variabels
+        // Extract the connection parameters, adding required variables
         extract($this->_config['connection'] + [
             'database' => '',
             'hostname' => '',
@@ -49,20 +71,26 @@ class Kohana_Database_MySQLi extends Database
             if (is_array($ssl)) {
                 $this->_connection = mysqli_init();
                 $this->_connection->ssl_set(
-                    Arr::get($ssl, 'client_key_path'), Arr::get($ssl, 'client_cert_path'), Arr::get($ssl, 'ca_cert_path'), Arr::get($ssl, 'ca_dir_path'), Arr::get($ssl, 'cipher')
+                    Arr::get($ssl, 'client_key_path'),
+                    Arr::get($ssl, 'client_cert_path'),
+                    Arr::get($ssl, 'ca_cert_path'),
+                    Arr::get($ssl, 'ca_dir_path'),
+                    Arr::get($ssl, 'cipher')
                 );
+                $this->_connection->options(MYSQLI_OPT_INT_AND_FLOAT_NATIVE, 1); // New option
                 $this->_connection->real_connect($hostname, $username, $password, $database, $port, $socket, MYSQLI_CLIENT_SSL);
             } else {
                 $this->_connection = new mysqli($hostname, $username, $password, $database, $port, $socket);
+                $this->_connection->options(MYSQLI_OPT_INT_AND_FLOAT_NATIVE, 1); // New option
             }
         } catch (Exception $e) {
             // No connection exists
             $this->_connection = null;
 
-            throw new Database_Exception(':error', [':error' => $e->getMessage()], $e->getCode());
+            throw new Database_Exception(':error', [':error' => $e->getMessage()], (int)$e->getCode());
         }
 
-        // \xFF is a better delimiter, but the PHP driver uses underscore
+        // Unique identifier for the connection
         $this->_connection_id = sha1($hostname . '_' . $username . '_' . $password);
 
         if (!empty($this->_config['charset'])) {
@@ -82,13 +110,18 @@ class Kohana_Database_MySQLi extends Database
         }
     }
 
-    public function disconnect()
+    /**
+     * Disconnects from the MySQLi database.
+     *
+     * @return bool True on success, false on failure
+     */
+    public function disconnect(): bool
     {
         try {
             // Database is assumed disconnected
             $status = true;
 
-            if (is_resource($this->_connection)) {
+            if ($this->_connection instanceof mysqli) {
                 if ($status = $this->_connection->close()) {
                     // Clear the connection
                     $this->_connection = null;
@@ -99,22 +132,29 @@ class Kohana_Database_MySQLi extends Database
             }
         } catch (Exception $e) {
             // Database is probably not disconnected
-            $status = !is_resource($this->_connection);
+            $status = !($this->_connection instanceof mysqli);
         }
 
         return $status;
     }
 
-    public function set_charset($charset)
+    /**
+     * Sets the character set for the MySQLi connection.
+     *
+     * @param string $charset Character set to use
+     * @return void
+     * @throws Database_Exception If setting the charset fails
+     */
+    public function set_charset(string $charset): void
     {
         // Make sure the database is connected
         $this->_connection or $this->connect();
 
         if (Database_MySQLi::$_set_names === true) {
-            // PHP is compiled against MySQL 4.x
-            $status = (bool) $this->_connection->query('SET NAMES ' . $this->quote($charset));
+            // If mysqli_set_charset() is not available
+            $status = (bool)$this->_connection->query('SET NAMES ' . $this->quote($charset));
         } else {
-            // PHP is compiled against MySQL 5.x
+            // Use mysqli_set_charset() if available
             $status = $this->_connection->set_charset($charset);
         }
 
@@ -123,52 +163,145 @@ class Kohana_Database_MySQLi extends Database
         }
     }
 
-    public function query($type, $sql, $as_object = false, array $params = null)
-    {
-        // Make sure the database is connected
-        $this->_connection or $this->connect();
+    /**
+     * Executes a database query.
+     *
+     * @param int $type Type of query (Database::SELECT, Database::INSERT, etc.)
+     * @param string $sql SQL query to execute
+     * @param bool|string $as_object Return results as objects or arrays
+     * @param array|null $params Parameters to bind to the query
+     * @return mixed Query result based on the type of query
+     * @throws Database_Exception If the query fails
+     */
+public function query(int $type, string $sql, $as_object = false, ?array $params = null)
+{
+    // Убедиться, что соединение установлено
+    $this->_connection or $this->connect();
 
-        if (Kohana::$profiling) {
-            // Benchmark this query for the current instance
-            $benchmark = Profiler::start("Database ({$this->_instance})", $sql);
+    if (Kohana::$profiling) {
+        // Профилирование запроса
+        $benchmark = Profiler::start("Database ({$this->_instance})", $sql);
+    }
+
+    // Инициализация переменных
+    $result = null;
+    $stmt = null;
+
+    // Если есть параметры, использовать подготовленный запрос
+    if (!empty($params)) {
+        // Подготовка выражения
+        $stmt = $this->_connection->prepare($sql);
+        if ($stmt === false) {
+            throw new Database_Exception(':error [ :query ]', [
+                ':error' => $this->_connection->error,
+                ':query' => $sql,
+            ], $this->_connection->errno);
         }
 
-        // Execute the query
-        if (($result = $this->_connection->query($sql)) === false) {
+        // Динамическая привязка параметров
+        $types = $this->_get_param_types($params);
+        if (!$stmt->bind_param($types, ...$params)) {
+            throw new Database_Exception(':error [ :query ]', [
+                ':error' => $stmt->error,
+                ':query' => $sql,
+            ], $stmt->errno);
+        }
+
+        // Выполнение запроса
+        if (!$stmt->execute()) {
+            throw new Database_Exception(':error [ :query ]', [
+                ':error' => $stmt->error,
+                ':query' => $sql,
+            ], $stmt->errno);
+        }
+
+        // Обработка результата в зависимости от типа запроса
+        if ($type === Database::SELECT) {
+            $mysqli_result = $stmt->get_result();
+            if ($mysqli_result === false) {
+                throw new Database_Exception(':error [ :query ]', [
+                    ':error' => $stmt->error,
+                    ':query' => $sql,
+                ], $stmt->errno);
+            }
+
+            // Создаём объект Database_MySQLi_Result
+            $result = new Database_MySQLi_Result($mysqli_result, $sql, $as_object, $params);
+        } elseif ($type === Database::INSERT) {
+            $result = [$stmt->insert_id, $stmt->affected_rows];
+        } else {
+            $result = $stmt->affected_rows;
+        }
+
+        // Закрытие выражения
+        $stmt->close();
+    } else {
+        // Выполняем обычный запрос, если нет параметров
+        $mysqli_result = $this->_connection->query($sql);
+
+        if ($mysqli_result === false) {
             if (isset($benchmark)) {
-                // This benchmark is worthless
                 Profiler::delete($benchmark);
             }
 
             throw new Database_Exception(':error [ :query ]', [
-            ':error' => $this->_connection->error,
-            ':query' => $sql
+                ':error' => $this->_connection->error,
+                ':query' => $sql,
             ], $this->_connection->errno);
         }
 
-        if (isset($benchmark)) {
-            Profiler::stop($benchmark);
-        }
-
-        // Set the last query
-        $this->last_query = $sql;
-
+        // Обработка результата в зависимости от типа запроса
         if ($type === Database::SELECT) {
-            // Return an iterator of results
-            return new Database_MySQLi_Result($result, $sql, $as_object, $params);
+            $result = new Database_MySQLi_Result($mysqli_result, $sql, $as_object, $params);
         } elseif ($type === Database::INSERT) {
-            // Return a list of insert id and rows created
-            return [
-                $this->_connection->insert_id,
-                $this->_connection->affected_rows,
-            ];
+            $result = [$this->_connection->insert_id, $this->_connection->affected_rows];
         } else {
-            // Return the number of rows affected
-            return $this->_connection->affected_rows;
+            $result = $this->_connection->affected_rows;
         }
     }
 
-    public function datatype($type)
+    if (isset($benchmark)) {
+        Profiler::stop($benchmark);
+    }
+
+    // Установка последнего запроса
+    $this->last_query = $sql;
+
+    return $result;
+}
+
+
+/**
+ * Определяет типы данных для bind_param.
+ *
+ * @param array $params Параметры запроса
+ * @return string Типы данных для параметров
+ */
+private function _get_param_types(array $params): string
+{
+    return implode('', array_map(function ($param) {
+        if ($param === null) {
+            return 's'; // null как строка
+        }
+        if (is_int($param)) {
+            return 'i';
+        }
+        if (is_float($param)) {
+            return 'd';
+        }
+        if (is_string($param)) {
+            return 's';
+        }
+        return 'b';
+    }, $params));
+}
+    /**
+     * Gets the datatype for a given SQL type.
+     *
+     * @param string $type SQL datatype
+     * @return array Associative array of type attributes
+     */
+    public function datatype(string $type): array
     {
         static $types = [
             'blob' => ['type' => 'string', 'binary' => true, 'character_maximum_length' => '65535'],
@@ -209,60 +342,108 @@ class Kohana_Database_MySQLi extends Database
 
         $type = str_replace(' zerofill', '', $type);
 
-        if (isset($types[$type]))
-            return $types[$type];
-
-        return parent::datatype($type);
+        return $types[$type] ?? parent::datatype($type);
     }
 
     /**
-     * Start a SQL transaction
+     * Starts a SQL transaction.
      *
-     * @link http://dev.mysql.com/doc/refman/5.0/en/set-transaction.html
-     *
-     * @param string $mode  Isolation level
-     * @return boolean
+     * @param string|null $mode Isolation level
+     * @return bool True on success, false on failure
+     * @throws Database_Exception If starting the transaction fails
      */
-    public function begin($mode = null)
+    public function begin(?string $mode = null): bool
     {
-        // Make sure the database is connected
+        // Ensure the database is connected
         $this->_connection or $this->connect();
 
-        if ($mode AND ! $this->_connection->query("SET TRANSACTION ISOLATION LEVEL $mode")) {
+        if ($mode && !$this->_connection->query("SET TRANSACTION ISOLATION LEVEL $mode")) {
             throw new Database_Exception(':error', [':error' => $this->_connection->error], $this->_connection->errno);
         }
 
-        return (bool) $this->_connection->query('START TRANSACTION');
+        return (bool)$this->_connection->query('START TRANSACTION');
     }
 
     /**
-     * Commit a SQL transaction
+     * Commits a SQL transaction.
      *
-     * @return boolean
+     * @return bool True on success, false on failure
      */
-    public function commit()
+    public function commit(): bool
     {
-        // Make sure the database is connected
+        // Ensure the database is connected
         $this->_connection or $this->connect();
 
-        return (bool) $this->_connection->query('COMMIT');
+        return (bool)$this->_connection->query('COMMIT');
     }
 
     /**
-     * Rollback a SQL transaction
+     * Rolls back a SQL transaction.
      *
-     * @return boolean
+     * @return bool True on success, false on failure
      */
-    public function rollback()
+    public function rollback(): bool
     {
-        // Make sure the database is connected
+        // Ensure the database is connected
         $this->_connection or $this->connect();
 
-        return (bool) $this->_connection->query('ROLLBACK');
+        return (bool)$this->_connection->query('ROLLBACK');
     }
 
-    public function list_tables($like = null)
+    /**
+     * Creates a savepoint in a transaction.
+     *
+     * @param string $name Savepoint name
+     * @return bool True on success, false on failure
+     */
+    public function savepoint(string $name): bool
     {
+        // Ensure the database is connected
+        $this->_connection or $this->connect();
+
+        return (bool)$this->_connection->query("SAVEPOINT `$name`");
+    }
+
+    /**
+     * Rolls back to a savepoint in a transaction.
+     *
+     * @param string $name Savepoint name
+     * @return bool True on success, false on failure
+     */
+    public function rollback_to_savepoint(string $name): bool
+    {
+        // Ensure the database is connected
+        $this->_connection or $this->connect();
+
+        return (bool)$this->_connection->query("ROLLBACK TO SAVEPOINT `$name`");
+    }
+
+    /**
+     * Releases a savepoint in a transaction.
+     *
+     * @param string $name Savepoint name
+     * @return bool True on success, false on failure
+     */
+    public function release_savepoint(string $name): bool
+    {
+        // Ensure the database is connected
+        $this->_connection or $this->connect();
+
+        return (bool)$this->_connection->query("RELEASE SAVEPOINT `$name`");
+    }
+
+    /**
+     * Lists all tables in the database.
+     *
+     * @param string|null $like Optional pattern to match table names
+     * @return array List of table names
+     */
+    public function list_tables(?string $like = null): array
+    {
+        if (isset(self::$_table_cache[$like])) {
+            return self::$_table_cache[$like];
+        }
+
         if (is_string($like)) {
             // Search for table names
             $result = $this->query(Database::SELECT, 'SHOW TABLES LIKE ' . $this->quote($like), false);
@@ -276,13 +457,29 @@ class Kohana_Database_MySQLi extends Database
             $tables[] = reset($row);
         }
 
+        self::$_table_cache[$like] = $tables;
+
         return $tables;
     }
 
-    public function list_columns($table, $like = null, $add_prefix = true)
+    /**
+     * Lists all columns in a table.
+     *
+     * @param string $table Table name
+     * @param string|null $like Optional pattern to match column names
+     * @param bool $add_prefix Whether to add a table prefix
+     * @return array List of column definitions
+     */
+    public function list_columns(string $table, ?string $like = null, bool $add_prefix = true): array
     {
-        // Quote the table name
-        $table = ($add_prefix === true) ? $this->quote_table($table) : $table;
+        if ($add_prefix === true) {
+            $table = $this->quote_table($table);
+        }
+
+        $cache_key = $table . ':' . $like;
+        if (isset(self::$_column_cache[$cache_key])) {
+            return self::$_column_cache[$cache_key];
+        }
 
         if (is_string($like)) {
             // Search for column names
@@ -295,20 +492,20 @@ class Kohana_Database_MySQLi extends Database
         $count = 0;
         $columns = [];
         foreach ($result as $row) {
-            list($type, $length) = $this->_parse_type($row['Type']);
+            [$type, $length] = $this->_parse_type($row['Type']);
 
             $column = $this->datatype($type);
 
             $column['column_name'] = $row['Field'];
             $column['column_default'] = $row['Default'];
             $column['data_type'] = $type;
-            $column['is_nullable'] = ($row['Null'] == 'YES');
+            $column['is_nullable'] = ($row['Null'] === 'YES');
             $column['ordinal_position'] = ++$count;
 
             switch ($column['type']) {
                 case 'float':
                     if (isset($length)) {
-                        list($column['numeric_precision'], $column['numeric_scale']) = explode(',', $length);
+                        [$column['numeric_precision'], $column['numeric_scale']] = explode(',', $length);
                     }
                     break;
                 case 'int':
@@ -318,26 +515,16 @@ class Kohana_Database_MySQLi extends Database
                     }
                     break;
                 case 'string':
-                    switch ($column['data_type']) {
-                        case 'binary':
-                        case 'varbinary':
-                            $column['character_maximum_length'] = $length;
-                            break;
-                        case 'char':
-                        case 'varchar':
-                            $column['character_maximum_length'] = $length;
-                        case 'text':
-                        case 'tinytext':
-                        case 'mediumtext':
-                        case 'longtext':
-                            $column['collation_name'] = $row['Collation'];
-                            break;
-                        case 'enum':
-                        case 'set':
-                            $column['collation_name'] = $row['Collation'];
-                            $column['options'] = explode('\',\'', substr($length, 1, -1));
-                            break;
-                    }
+                    match ($column['data_type']) {
+                        'binary', 'varbinary' => $column['character_maximum_length'] = $length,
+                        'char', 'varchar' => $column['character_maximum_length'] = $length,
+                        'text', 'tinytext', 'mediumtext', 'longtext' => $column['collation_name'] = $row['Collation'],
+                        'enum', 'set' => [
+                            $column['collation_name'] = $row['Collation'],
+                            $column['options'] = explode('\',\'', substr($length, 1, -1))
+                        ],
+                        default => null,
+                    };
                     break;
             }
 
@@ -350,20 +537,34 @@ class Kohana_Database_MySQLi extends Database
             $columns[$row['Field']] = $column;
         }
 
+        self::$_column_cache[$cache_key] = $columns;
+
         return $columns;
     }
 
-    public function escape($value)
+    /**
+     * Escapes a string value for safe SQL query usage.
+     *
+     * @param string $value String value to escape
+     * @return string Escaped string
+     * @throws Database_Exception If escaping the value fails
+     */
+    public function escape(string $value): string
     {
-        // Make sure the database is connected
+        // Ensure the database is connected
         $this->_connection or $this->connect();
 
-        if (($value = $this->_connection->real_escape_string((string) $value)) === false) {
+        // Use prepared statements to escape values
+        $stmt = $this->_connection->prepare('SELECT ?');
+        if ($stmt === false) {
             throw new Database_Exception(':error', [':error' => $this->_connection->error], $this->_connection->errno);
         }
+        $stmt->bind_param('s', $value);
+        $stmt->execute();
+        $stmt->bind_result($escaped_value);
+        $stmt->fetch();
+        $stmt->close();
 
-        // SQL standard is to use single-quotes for all values
-        return "'$value'";
+        return "'$escaped_value'";
     }
-
 }
